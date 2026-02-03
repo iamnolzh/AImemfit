@@ -1,4 +1,5 @@
 import { $ } from "bun"
+import { copyFile, mkdir } from "fs/promises"
 
 export const SIDECAR_BINARIES: Array<{ rustTarget: string; ocBinary: string; assetExt: string }> = [
   {
@@ -56,10 +57,10 @@ export function getCurrentSidecar(target = RUST_TARGET) {
 }
 
 export async function copyBinaryToSidecarFolder(source: string, target = RUST_TARGET) {
-  await $`mkdir -p src-tauri/sidecars`
+  await mkdir("src-tauri/sidecars", { recursive: true })
   const isWinTarget = target.includes("windows")
   const dest = `src-tauri/sidecars/opencode-cli-${target}${isWinTarget ? ".exe" : ""}`
-  await $`cp ${source} ${dest}`
+  await copyFile(source, dest)
 
   console.log(`Copied ${source} to ${dest}`)
 }

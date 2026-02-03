@@ -3,12 +3,7 @@ import { EOL } from "os"
 import { NamedError } from "@opencode-ai/util/error"
 
 export namespace UI {
-  const LOGO = [
-    [`                    `, `             ▄     `],
-    [`█▀▀█ █▀▀█ █▀▀█ █▀▀▄ `, `█▀▀▀ █▀▀█ █▀▀█ █▀▀█`],
-    [`█░░█ █░░█ █▀▀▀ █░░█ `, `█░░░ █░░█ █░░█ █▀▀▀`],
-    [`▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀  ▀ `, `▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀`],
-  ]
+  const LOGO = []
 
   export const CancelledError = NamedError.create("UICancelledError", z.void())
 

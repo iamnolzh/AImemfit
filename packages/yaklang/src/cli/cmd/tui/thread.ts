@@ -14,7 +14,7 @@ declare global {
 
 export const TuiThreadCommand = cmd({
   command: "$0 [project]",
-  describe: "start opencode tui",
+  describe: "start yaklang tui",
   builder: (yargs) =>
     withNetworkOptions(yargs)
       .positional("project", {
@@ -103,7 +103,7 @@ export const TuiThreadCommand = cmd({
     })
 
     setTimeout(() => {
-      client.call("checkUpgrade", { directory: cwd }).catch(() => {})
+      client.call("checkUpgrade", { directory: cwd }).catch(() => { })
     }, 1000)
 
     await tuiPromise

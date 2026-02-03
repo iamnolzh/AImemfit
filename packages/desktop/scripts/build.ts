@@ -14,6 +14,7 @@
 import { $ } from "bun"
 import { copyBinaryToSidecarFolder, getCurrentPlatformSidecar } from "./utils"
 import path from "path"
+import { cp, mkdir } from "fs/promises"
 import { fileURLToPath } from "url"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -43,8 +44,8 @@ await $`bun run build --single`.cwd(yaklangDir)
 console.log("[build] 同步公共资源...")
 const appPublicDir = path.join(repoRoot, "packages/app/public")
 const desktopPublicDir = path.join(desktopDir, "public")
-await $`mkdir -p ${desktopPublicDir}`
-await $`cp -r ${appPublicDir}/* ${desktopPublicDir}/`
+await mkdir(desktopPublicDir, { recursive: true })
+await cp(appPublicDir, desktopPublicDir, { recursive: true, force: true })
 
 console.log("[build] 复制 sidecar...")
 process.env.RUST_TARGET = sidecar.rustTarget
