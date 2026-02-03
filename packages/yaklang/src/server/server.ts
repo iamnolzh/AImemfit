@@ -2839,12 +2839,13 @@ export namespace Server {
   )
 
   export async function openapi() {
-    const result = await generateSpecs(App(), {
+    // Cast to avoid "Type instantiation is excessively deep" with Hono App + generateSpecs
+    const result = await generateSpecs(App() as any, {
       documentation: {
         info: {
-          title: "opencode",
+          title: "yaklang",
           version: "1.0.0",
-          description: "opencode api",
+          description: "yaklang api",
         },
         openapi: "3.1.1",
       },

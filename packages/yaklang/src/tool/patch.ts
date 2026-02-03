@@ -53,7 +53,7 @@ export const PatchTool = Tool.define("patch", {
       if (isSkillProtectedPath(filePath)) {
         throw new Error(SKILL_PROTECTED_MESSAGE)
       }
-      if (hunk.move_path) {
+      if ("move_path" in hunk && hunk.move_path) {
         const movePath = path.resolve(Instance.directory, hunk.move_path)
         if (isSkillProtectedPath(movePath)) {
           throw new Error(SKILL_PROTECTED_MESSAGE)
@@ -117,8 +117,8 @@ export const PatchTool = Tool.define("patch", {
             filePath,
             oldContent,
             newContent,
-            type: hunk.move_path ? "move" : "update",
-            movePath: hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined,
+            type: "move_path" in hunk && hunk.move_path ? "move" : "update",
+            movePath: "move_path" in hunk && hunk.move_path ? path.resolve(Instance.directory, hunk.move_path) : undefined,
           })
 
           totalDiff += diff + "\n"
