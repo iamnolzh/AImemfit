@@ -1,7 +1,9 @@
 mod cli;
 mod window_customizer;
 
-use cli::{get_sidecar_path, install_cli, sync_cli};
+#[cfg(not(target_os = "windows"))]
+use cli::get_sidecar_path;
+use cli::{install_cli, sync_cli};
 use futures::FutureExt;
 use std::{
     collections::VecDeque,

@@ -52,7 +52,7 @@ jobs:
       - name: Build Tauri (Windows)
         run: |
           cd packages/desktop
-          bun run tauri build -- --target x86_64-pc-windows-msvc
+          bun run tauri build
         shell: bash
 
       - name: Upload NSIS installer
