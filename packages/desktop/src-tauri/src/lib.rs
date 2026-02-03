@@ -1,7 +1,7 @@
 mod cli;
 mod window_customizer;
 
-use cli::{install_cli, sync_cli};
+use cli::{get_sidecar_path, install_cli, sync_cli};
 use futures::FutureExt;
 use std::{
     collections::VecDeque,
@@ -89,9 +89,9 @@ async fn ensure_server_started(state: State<'_, ServerState>) -> Result<(), Stri
 }
 
 fn get_sidecar_port() -> u32 {
-    option_env!("OPENCODE_PORT")
+    option_env!("YAKLANG_PORT")
         .map(|s| s.to_string())
-        .or_else(|| std::env::var("OPENCODE_PORT").ok())
+        .or_else(|| std::env::var("YAKLANG_PORT").ok())
         .and_then(|port_str| port_str.parse().ok())
         .unwrap_or_else(|| {
             TcpListener::bind("127.0.0.1:0")
@@ -131,7 +131,7 @@ fn spawn_sidecar(app: &AppHandle, port: u32) -> CommandChild {
     #[cfg(not(target_os = "windows"))]
     let (mut rx, child) = {
         let shell = get_user_shell();
-        let sidecar = app.path().resolve("sidecars/yaklang-cli", BaseDirectory::Resource).expect("failed to resolve yaklang-cli");
+        let sidecar = get_sidecar_path();
         app.shell()
             .command(&shell)
             .env("YAKLANG_EXPERIMENTAL_ICON_DISCOVERY", "true")

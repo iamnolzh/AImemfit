@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Yaklang Dev",
-  "identifier": "ai.opencode.desktop.dev",
+  "identifier": "ai.yaklang.desktop.dev",
   "mainBinaryName": "Yaklang",
   "version": "../package.json",
   "build": {
@@ -26,8 +26,16 @@
       "icons/dev/icon.ico"
     ],
     "active": true,
-    "targets": ["deb", "rpm", "nsis", "app", "appimage"],
-    "externalBin": ["sidecars/opencode-cli"],
+    "targets": [
+      "deb",
+      "rpm",
+      "nsis",
+      "app",
+      "appimage"
+    ],
+    "externalBin": [
+      "yaklang-cli"
+    ],
     "macOS": {
       "entitlements": "./entitlements.plist"
     },

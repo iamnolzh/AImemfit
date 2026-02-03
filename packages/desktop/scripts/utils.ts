@@ -59,7 +59,7 @@ export function getCurrentSidecar(target = RUST_TARGET) {
 export async function copyBinaryToSidecarFolder(source: string, target = RUST_TARGET) {
   await mkdir("src-tauri/sidecars", { recursive: true })
   const isWinTarget = target.includes("windows")
-  const dest = `src-tauri/sidecars/opencode-cli-${target}${isWinTarget ? ".exe" : ""}`
+  const dest = `src-tauri/yaklang-cli-${target}${isWinTarget ? ".exe" : ""}`
   await copyFile(source, dest)
 
   console.log(`Copied ${source} to ${dest}`)

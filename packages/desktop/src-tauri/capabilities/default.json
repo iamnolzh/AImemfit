@@ -27,7 +27,7 @@
       "allow": [
         {
           "args": true,
-          "name": "sidecars/opencode-cli",
+          "name": "yaklang-cli",
           "sidecar": true
         }
       ]

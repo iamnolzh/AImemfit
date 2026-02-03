@@ -23,8 +23,8 @@ const repoRoot = path.resolve(desktopDir, "../..")
 const yaklangDir = path.join(repoRoot, "packages/yaklang")
 
 // 非 git 或 CI 时避免 yaklang build 里 git branch 报错
-process.env.OPENCODE_CHANNEL = process.env.OPENCODE_CHANNEL ?? "latest"
-process.env.OPENCODE_VERSION = process.env.OPENCODE_VERSION ?? "1.1.4"
+process.env.YAKLANG_CHANNEL = process.env.YAKLANG_CHANNEL ?? "latest"
+process.env.YAKLANG_VERSION = process.env.YAKLANG_VERSION ?? "1.1.4"
 // 避免 CI=1 导致 tauri 参数解析错误
 delete process.env.CI
 
