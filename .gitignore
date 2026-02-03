@@ -24,6 +24,3 @@ target
 # Local dev files
 opencode-dev
 logs/
-
-# Large binary (exceeds GitHub 100MB limit)
-.opencode/skill/auto-pentest/tools/crawler/yak_fast
