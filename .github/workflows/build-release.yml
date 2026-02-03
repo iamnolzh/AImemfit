@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -272,9 +274,10 @@ jobs:
           cat > src-tauri/tauri.prod.conf.json << 'EOF'
           {
             "$schema": "https://schema.tauri.app/config/2",
-            "productName": "OpenCode",
-            "identifier": "ai.opencode.desktop.unguarded",
+            "productName": "Yaklang",
+            "identifier": "ai.opencode.desktop",
             "bundle": {
+              "externalBin": ["sidecars/opencode-cli"],
               "createUpdaterArtifacts": false,
               "icon": [
                 "icons/prod/32x32.png",

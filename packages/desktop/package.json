@@ -6,8 +6,9 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsgo -b",
-    "predev": "bun ./scripts/predev.ts",
+    "predev": "bun ./scripts/sync-assets.ts && bun ./scripts/predev.ts",
     "dev": "vite",
+    "prebuild": "bun ./scripts/sync-assets.ts",
     "build": "bun run typecheck && vite build",
     "build:desktop": "bun ./scripts/build.ts",
     "preview": "vite preview",
