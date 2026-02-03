@@ -22,21 +22,20 @@ jobs:
         run: bun install
         shell: bash
 
-      - name: Build opencode CLI (Windows)
+      - name: Build yaklang CLI (Windows)
         run: |
           cd packages/yaklang
-          OPENCODE_CHANNEL=latest OPENCODE_VERSION=1.1.4 bun run build --single
+          YAKLANG_CHANNEL=latest YAKLANG_VERSION=1.1.4 bun run build --single
         shell: bash
         env:
-          OPENCODE_CHANNEL: latest
-          OPENCODE_VERSION: "1.1.4"
+          YAKLANG_CHANNEL: latest
+          YAKLANG_VERSION: "1.1.4"
 
       - name: Prepare sidecar
         run: |
           cd packages/desktop
-          mkdir -p src-tauri/sidecars
-          cp ../yaklang/dist/yaklang-windows-x64/bin/yaklang.exe src-tauri/sidecars/opencode-cli-x86_64-pc-windows-msvc.exe
-          ls -la src-tauri/sidecars/
+          cp ../yaklang/dist/yaklang-windows-x64/bin/yaklang.exe src-tauri/yaklang-cli-x86_64-pc-windows-msvc.exe
+          ls -la src-tauri/
         shell: bash
 
       - name: Install Rust
@@ -59,7 +58,7 @@ jobs:
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-desktop-windows-x64
+          name: yaklang-desktop-windows-x64
           path: |
             packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
             packages/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi

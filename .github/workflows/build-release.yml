@@ -55,8 +55,8 @@ jobs:
       - name: Build Linux CLI (this repo)
         run: cd packages/yaklang && bun run build
         env:
-          OPENCODE_VERSION: ${{ needs.fetch-version.outputs.version }}
-          OPENCODE_CHANNEL: latest
+          YAKLANG_VERSION: ${{ needs.fetch-version.outputs.version }}
+          YAKLANG_CHANNEL: latest
 
       - name: Upload Linux x64
         uses: actions/upload-artifact@v4
@@ -109,8 +109,8 @@ jobs:
         run: cd packages/yaklang && bun run build --single
         shell: bash
         env:
-          OPENCODE_VERSION: ${{ needs.fetch-version.outputs.version }}
-          OPENCODE_CHANNEL: latest
+          YAKLANG_VERSION: ${{ needs.fetch-version.outputs.version }}
+          YAKLANG_CHANNEL: latest
 
       - name: Upload Windows x64
         uses: actions/upload-artifact@v4
@@ -146,8 +146,8 @@ jobs:
       - name: Build macOS CLI (this repo)
         run: cd packages/yaklang && bun run build
         env:
-          OPENCODE_VERSION: ${{ needs.fetch-version.outputs.version }}
-          OPENCODE_CHANNEL: latest
+          YAKLANG_VERSION: ${{ needs.fetch-version.outputs.version }}
+          YAKLANG_CHANNEL: latest
 
       - name: Upload macOS ARM64
         uses: actions/upload-artifact@v4
@@ -245,14 +245,13 @@ jobs:
       - name: Prepare sidecar binary
         run: |
           cd packages/desktop
-          mkdir -p src-tauri/sidecars
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp ../../cli-binary/yaklang.exe "src-tauri/sidecars/opencode-cli-${{ matrix.target }}.exe"
+            cp ../../cli-binary/yaklang.exe "src-tauri/yaklang-cli-${{ matrix.target }}.exe"
           else
-            cp ../../cli-binary/yaklang "src-tauri/sidecars/opencode-cli-${{ matrix.target }}"
-            chmod +x "src-tauri/sidecars/opencode-cli-${{ matrix.target }}"
+            cp ../../cli-binary/yaklang "src-tauri/yaklang-cli-${{ matrix.target }}"
+            chmod +x "src-tauri/yaklang-cli-${{ matrix.target }}"
           fi
-          ls -la src-tauri/sidecars/
+          ls -la src-tauri/
         shell: bash
 
       - name: Update Tauri config version
@@ -274,10 +273,10 @@ jobs:
           cat > src-tauri/tauri.prod.conf.json << 'EOF'
           {
             "$schema": "https://schema.tauri.app/config/2",
-            "productName": "Yaklang",
-            "identifier": "ai.opencode.desktop",
+            "productName": "yaklang",
+            "identifier": "ai.yaklang.desktop",
             "bundle": {
-              "externalBin": ["sidecars/opencode-cli"],
+              "externalBin": ["yaklang-cli"],
               "createUpdaterArtifacts": false,
               "icon": [
                 "icons/prod/32x32.png",

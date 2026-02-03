@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>ai.opencode.opencode</id>
+  <id>ai.yaklang.yaklang</id>
 
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
 
-  <name>Yaklang</name>
+  <name>yaklang</name>
   <summary>Open source AI coding agent</summary>
 
-  <developer id="ly.anoma">
-    <name>Anomaly Innovations Inc.</name>
+  <developer id="yaklang.ai">
+    <name>Yaklang AI</name>
   </developer>
 
   <description>
@@ -18,13 +18,13 @@
     </p>
   </description>
 
-  <launchable type="desktop-id">ai.opencode.opencode.desktop</launchable>
+  <launchable type="desktop-id">ai.yaklang.yaklang.desktop</launchable>
 
   <content_rating type="oars-1.1" />
 
-  <url type="bugtracker">https://github.com/anomalyco/opencode/issues</url>
-  <url type="homepage">https://opencode.ai</url>
-  <url type="vcs-browser">https://github.com/anomalyco/opencode</url>
+  <url type="bugtracker">https://github.com/iamnolzh/AImemfit/issues</url>
+  <url type="homepage">https://yaklang.ai</url>
+  <url type="vcs-browser">https://github.com/iamnolzh/AImemfit</url>
 
   <screenshots>
     <screenshot type="default">
