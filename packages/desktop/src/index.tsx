@@ -238,7 +238,7 @@ const platform: Platform = {
       .then(() => {
         const notification = new Notification(title, {
           body: description ?? "",
-          icon: "https://opencode.ai/favicon-96x96.png",
+          icon: "/yaklogo.png",
         })
         notification.onclick = () => {
           const win = getCurrentWindow()
@@ -284,7 +284,7 @@ render(() => {
 // Gate component that waits for the server to be ready
 function ServerGate(props: ParentProps) {
   const [status] = createResource(async () => {
-    if (window.__OPENCODE__?.serverReady) return
+    if (window.__YAKLANG__?.serverReady) return
     return await invoke("ensure_server_started")
   })
 

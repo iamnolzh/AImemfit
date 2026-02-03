@@ -1,7 +1,7 @@
 mod cli;
 mod window_customizer;
 
-use cli::{get_sidecar_path, install_cli, sync_cli};
+use cli::{install_cli, sync_cli};
 use futures::FutureExt;
 use std::{
     collections::VecDeque,
@@ -102,6 +102,7 @@ fn get_sidecar_port() -> u32 {
         }) as u32
 }
 
+#[allow(dead_code)]
 fn get_user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
@@ -118,10 +119,10 @@ fn spawn_sidecar(app: &AppHandle, port: u32) -> CommandChild {
     #[cfg(target_os = "windows")]
     let (mut rx, child) = app
         .shell()
-        .sidecar("opencode-cli")
+        .sidecar("yaklang-cli")
         .unwrap()
-        .env("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY", "true")
-        .env("OPENCODE_CLIENT", "desktop")
+        .env("YAKLANG_EXPERIMENTAL_ICON_DISCOVERY", "true")
+        .env("YAKLANG_CLIENT", "desktop")
         .env("XDG_STATE_HOME", &state_dir)
         .args(["serve", &format!("--port={port}")])
         .spawn()
@@ -129,12 +130,12 @@ fn spawn_sidecar(app: &AppHandle, port: u32) -> CommandChild {
 
     #[cfg(not(target_os = "windows"))]
     let (mut rx, child) = {
-        let sidecar = get_sidecar_path();
         let shell = get_user_shell();
+        let sidecar = app.path().resolve("sidecars/yaklang-cli", BaseDirectory::Resource).expect("failed to resolve yaklang-cli");
         app.shell()
             .command(&shell)
-            .env("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY", "true")
-            .env("OPENCODE_CLIENT", "desktop")
+            .env("YAKLANG_EXPERIMENTAL_ICON_DISCOVERY", "true")
+            .env("YAKLANG_CLIENT", "desktop")
             .env("XDG_STATE_HOME", &state_dir)
             .args([
                 "-il",
@@ -236,7 +237,7 @@ pub fn run() {
                 .unwrap_or(LogicalSize::new(1920, 1080));
 
             // Create window immediately with serverReady = false
-            let mut window_builder =
+            let window_builder =
                 WebviewWindow::builder(&app, "main", WebviewUrl::App("/".into()))
                     .title("Yaklang")
                     .inner_size(size.width as f64, size.height as f64)
@@ -245,9 +246,9 @@ pub fn run() {
                     .disable_drag_drop_handler()
                     .initialization_script(format!(
                         r#"
-                      window.__OPENCODE__ ??= {{}};
-                      window.__OPENCODE__.updaterEnabled = {updater_enabled};
-                      window.__OPENCODE__.port = {port};
+                      window.__YAKLANG__ ??= {{}};
+                      window.__YAKLANG__.updaterEnabled = {updater_enabled};
+                      window.__YAKLANG__.port = {port};
                     "#
                     ));
 
@@ -300,7 +301,7 @@ pub fn run() {
                     app.state::<ServerState>().set_child(child);
 
                     if res.is_ok() {
-                        let _ = window.eval("window.__OPENCODE__.serverReady = true;");
+                        let _ = window.eval("window.__YAKLANG__.serverReady = true;");
                     }
 
                     let _ = tx.send(res);
