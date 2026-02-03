@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Yaklang",
+  "productName": "MemfitAI",
   "identifier": "ai.yaklang.desktop.dev",
   "mainBinaryName": "yaklang",
   "version": "../package.json",

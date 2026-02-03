@@ -2,7 +2,7 @@
 # Must match tauri.conf.json mainBinaryName so Cargo produces Yaklang.exe and Tauri finds it (no rename step)
 name = "yaklang"
 version = "0.0.0"
-description = "Yaklang - AI coding agent"
+description = "MemfitAI - AI coding agent"
 authors = ["Anomaly Innovations"]
 edition = "2021"
 
