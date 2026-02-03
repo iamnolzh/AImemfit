@@ -18,8 +18,8 @@ refs
 Session.vim
 # 仅忽略仓库根目录的本地配置，不忽略 packages 内的 theme/yaklang.json
 /yaklang.json
-# 本地技能、配置、数据（含大文件），不纳入版本库
-.yaklang/
+# .yaklang 可提交，只排除超 100MB 的大文件（GitHub 限制）
+.yaklang/skill/auto-pentest/tools/crawler/yak_fast
 a.out
 target
 .scripts

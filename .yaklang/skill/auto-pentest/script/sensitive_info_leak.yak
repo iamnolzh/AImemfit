@@ -1,0 +1,471 @@
+__DESC__ = "被动分析 HTTP 响应，检测 API 密钥、数据库密码、私钥、内网 IP、手机号等敏感信息泄露"
+__VERBOSE_NAME__ = "敏感信息泄露检测"
+__KEYWORDS__ = "info-disclosure,sensitive-data-exposure,api-key-leak,credential-leak,privacy-leak"
+
+// CLI 参数定义
+flowIDStr = cli.String(
+    "httpflow-id",
+    cli.setVerboseName("HTTPFlowID"),
+    cli.setHelp("History 中的 HTTPFlow ID,用于获取请求/响应包内容"),
+    cli.setRequired(true),
+)
+cli.check()
+
+// 辅助输出函数
+aiOut = msg => {
+    try {
+        yakit.AIOutput(msg)
+    } catch {
+        println(msg)
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心数据结构: 敏感信息检测规则
+// -------------------------------------------------------------------
+
+// 高危信息: API 密钥检测规则
+apiKeyPatterns = [
+    {
+        "name": "AWS Access Key",
+        "pattern": `(?i)(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}`,
+        "severity": "critical",
+        "description": "AWS 访问密钥泄露，可能导致云资源被非法访问"
+    },
+    {
+        "name": "GitHub Token",
+        "pattern": `ghp_[0-9a-zA-Z]{36}|gho_[0-9a-zA-Z]{36}|ghu_[0-9a-zA-Z]{36}|ghs_[0-9a-zA-Z]{36}`,
+        "severity": "critical",
+        "description": "GitHub 个人访问令牌泄露"
+    },
+    {
+        "name": "Google API Key",
+        "pattern": `AIza[0-9A-Za-z\-_]{35}`,
+        "severity": "critical",
+        "description": "Google API 密钥泄露"
+    },
+    {
+        "name": "Slack Token",
+        "pattern": `xox[pboa]-[0-9]{12}-[0-9]{12}-[0-9a-zA-Z]{24,32}`,
+        "severity": "critical",
+        "description": "Slack API 令牌泄露"
+    },
+    {
+        "name": "Stripe API Key",
+        "pattern": `(?i)sk_live_[0-9a-zA-Z]{24,}`,
+        "severity": "critical",
+        "description": "Stripe 生产环境密钥泄露"
+    },
+    {
+        "name": "阿里云 AccessKey",
+        "pattern": `(?i)LTAI[0-9A-Za-z]{12,20}`,
+        "severity": "critical",
+        "description": "阿里云访问密钥泄露"
+    },
+    {
+        "name": "腾讯云 SecretId",
+        "pattern": `(?i)AKID[0-9A-Za-z]{32,40}`,
+        "severity": "critical",
+        "description": "腾讯云访问密钥泄露"
+    },
+]
+
+// 数据库连接串
+dbConnectionPatterns = [
+    {
+        "name": "MySQL Connection String",
+        "pattern": `(?i)mysql://[^\s:]+:[^\s@]+@[^\s/]+(/[^\s]*)?`,
+        "severity": "critical",
+        "description": "MySQL 数据库连接串泄露（包含密码）"
+    },
+    {
+        "name": "PostgreSQL Connection String",
+        "pattern": `(?i)postgres(ql)?://[^\s:]+:[^\s@]+@[^\s/]+(/[^\s]*)?`,
+        "severity": "critical",
+        "description": "PostgreSQL 数据库连接串泄露（包含密码）"
+    },
+    {
+        "name": "MongoDB Connection String",
+        "pattern": `(?i)mongodb(\+srv)?://[^\s:]+:[^\s@]+@[^\s/]+(/[^\s]*)?`,
+        "severity": "critical",
+        "description": "MongoDB 数据库连接串泄露（包含密码）"
+    },
+    {
+        "name": "Redis Connection String",
+        "pattern": `(?i)redis://:[^\s@]+@[^\s:/]+:[0-9]+`,
+        "severity": "high",
+        "description": "Redis 数据库连接串泄露（包含密码）"
+    },
+]
+
+// 私钥和证书
+privateKeyPatterns = [
+    {
+        "name": "SSH Private Key",
+        "pattern": `-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----`,
+        "severity": "critical",
+        "description": "SSH 私钥泄露"
+    },
+    {
+        "name": "PGP Private Key",
+        "pattern": `-----BEGIN PGP PRIVATE KEY BLOCK-----`,
+        "severity": "critical",
+        "description": "PGP 私钥泄露"
+    },
+    {
+        "name": "SSL Private Key",
+        "pattern": `-----BEGIN PRIVATE KEY-----`,
+        "severity": "critical",
+        "description": "SSL 私钥泄露"
+    },
+]
+
+// JWT Token
+jwtPattern = {
+    "name": "JWT Token",
+    "pattern": `eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`,
+    "severity": "high",
+    "description": "JWT 令牌泄露"
+}
+
+// 中危信息: 内网 IP 检测
+internalIPPattern = {
+    "name": "Internal IP Address",
+    "pattern": `(?:(?:10\.(?:[0-9]{1,2}|1[0-9]{2}|2[0-4][0-9]|25[0-5]))|(?:172\.(?:1[6-9]|2[0-9]|3[01]))|(?:192\.168))(?:\.(?:[0-9]{1,2}|1[0-9]{2}|2[0-4][0-9]|25[0-5])){2}`,
+    "severity": "medium",
+    "description": "内网 IP 地址泄露"
+}
+
+// 敏感路径泄露
+sensitivePathPatterns = [
+    {
+        "name": "Linux Root Path",
+        "pattern": `/root/[\w/.\-]+`,
+        "severity": "medium",
+        "description": "Linux root 用户路径泄露"
+    },
+    {
+        "name": "Windows Admin Path",
+        "pattern": `C:\\Users\\Administrator\\[\w\\/.\-]+`,
+        "severity": "medium",
+        "description": "Windows 管理员路径泄露"
+    },
+    {
+        "name": "SSH Key Path",
+        "pattern": `/home/[\w]+/\.ssh/id_rsa`,
+        "severity": "high",
+        "description": "SSH 私钥路径泄露"
+    },
+]
+
+// 低危信息: 手机号检测（中国大陆）
+phonePattern = {
+    "name": "Chinese Phone Number",
+    "pattern": `1[3-9]\d{9}`,
+    "severity": "low",
+    "threshold": 3,
+    "description": "疑似手机号批量泄露"
+}
+
+// 身份证号检测（中国大陆）
+idCardPattern = {
+    "name": "Chinese ID Card",
+    "pattern": `[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]`,
+    "severity": "low",
+    "threshold": 3,
+    "description": "疑似身份证号批量泄露"
+}
+
+// 邮箱检测（智能过滤）
+emailPattern = {
+    "name": "Email Address",
+    "pattern": `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`,
+    "severity": "low",
+    "public_domains": ["gmail.com", "qq.com", "163.com", "126.com", "hotmail.com", "outlook.com", "yahoo.com"],
+    "filter_tags": ["mailto:", "<a", "href=", "contact", "support"],
+    "description": "内部邮箱地址泄露"
+}
+
+// -------------------------------------------------------------------
+// 辅助函数
+// -------------------------------------------------------------------
+
+// 判断是否在业务上下文中（避免误报）
+isInBusinessContext = func(body, value) {
+    // 检查是否在 JSON 的业务字段中
+    // 例如: {"server_ip": "192.168.1.100", "status": "online"}
+
+    index = str.Index(body, value)
+    if index == -1 {
+        return false
+    }
+
+    start = index - 50
+    if start < 0 { start = 0 }
+    end = index + len(value) + 50
+    if end > len(body) { end = len(body) }
+
+    context = body[start:end]
+
+    // 如果前后有 JSON 键值对特征，认为是业务数据
+    if str.Contains(context, `":`) && (str.Contains(context, `,"`) || str.Contains(context, `}"`)) {
+        return true
+    }
+
+    return false
+}
+
+// 脱敏显示（避免泄露到日志）
+maskSensitiveData = func(data) {
+    if len(data) <= 8 {
+        return "***"
+    }
+    return data[:4] + "****" + data[len(data)-4:]
+}
+
+// 风险上报
+reportSensitiveLeak = func(url, rule, matchedValue, responseRaw, requestRaw) {
+    risk.NewRisk(
+        url,
+        risk.title(sprintf("Sensitive Information Disclosure: %s", rule.name)),
+        risk.titleVerbose(sprintf("敏感信息泄露: %s", rule.name)),
+        risk.details({
+            "type": rule.name,
+            "matched_value": maskSensitiveData(matchedValue),
+            "severity": rule.severity,
+            "description": rule.description,
+        }),
+        risk.type("info-exposure"),
+        risk.severity(rule.severity),
+        risk.payload(sprintf("Pattern: %s", rule.pattern)),
+        risk.request(requestRaw),
+        risk.response(responseRaw),
+        risk.description(rule.description),
+        risk.solution("1. 不要在响应中返回敏感信息（API 密钥、密码等）。\n2. 禁用调试模式，避免泄露路径、内网 IP 等信息。\n3. 对错误信息进行统一处理，不暴露内部细节。\n4. 定期扫描代码库，检查是否存在硬编码的敏感信息。")
+    )
+}
+
+// -------------------------------------------------------------------
+// 核心检测函数
+// -------------------------------------------------------------------
+
+// 高危信息检测（API 密钥、数据库密码、私钥等）
+detectHighRiskInfo = func(responseRaw, body, url, requestRaw) {
+    foundCount = 0
+
+    // 检测 API 密钥
+    for _, rule = range apiKeyPatterns {
+        matches = re.FindAll(body, rule.pattern)
+        if len(matches) > 0 {
+            for _, match = range matches {
+                aiOut(sprintf("  ✓ 发现 %s: %s", rule.name, maskSensitiveData(match)))
+                reportSensitiveLeak(url, rule, match, responseRaw, requestRaw)
+                foundCount++
+            }
+        }
+    }
+
+    // 检测数据库连接串
+    for _, rule = range dbConnectionPatterns {
+        matches = re.FindAll(body, rule.pattern)
+        if len(matches) > 0 {
+            for _, match = range matches {
+                aiOut(sprintf("  ✓ 发现 %s: %s", rule.name, maskSensitiveData(match)))
+                reportSensitiveLeak(url, rule, match, responseRaw, requestRaw)
+                foundCount++
+            }
+        }
+    }
+
+    // 检测私钥
+    for _, rule = range privateKeyPatterns {
+        if str.Contains(body, rule.pattern) {
+            aiOut(sprintf("  ✓ 发现 %s", rule.name))
+            reportSensitiveLeak(url, rule, "[PRIVATE KEY CONTENT]", responseRaw, requestRaw)
+            foundCount++
+        }
+    }
+
+    // 检测 JWT
+    matches = re.FindAll(body, jwtPattern.pattern)
+    if len(matches) > 0 {
+        for _, match = range matches {
+            aiOut(sprintf("  ✓ 发现 JWT Token: %s", maskSensitiveData(match)))
+            reportSensitiveLeak(url, jwtPattern, match, responseRaw, requestRaw)
+            foundCount++
+        }
+    }
+
+    if foundCount == 0 {
+        aiOut("  → 未发现高危敏感信息")
+    }
+}
+
+// 中危信息检测（内网 IP、路径泄露，带上下文过滤）
+detectMediumRiskInfo = func(responseRaw, body, url, requestRaw) {
+    foundCount = 0
+
+    // 检测内网 IP（仅在响应头或错误信息中）
+    internalIPs = re.FindAll(body, internalIPPattern.pattern)
+    if len(internalIPs) > 0 {
+        for _, ip = range internalIPs {
+            // 上下文过滤：如果出现在 JSON 的业务字段中，跳过
+            if isInBusinessContext(body, ip) {
+                continue
+            }
+
+            aiOut(sprintf("  ✓ 发现内网 IP: %s", ip))
+            reportSensitiveLeak(url, internalIPPattern, ip, responseRaw, requestRaw)
+            foundCount++
+        }
+    }
+
+    // 检测响应头中的内网 IP
+    responseHeaders = poc.GetHTTPPacketHeaders(responseRaw)
+    for headerName, headerValue = range responseHeaders {
+        headerValueStr = string(headerValue)
+        if str.MatchAnyOfRegexp(headerValueStr, internalIPPattern.pattern) {
+            aiOut(sprintf("  ✓ 发现响应头中的内网 IP: %s: %s", headerName, headerValueStr))
+            reportSensitiveLeak(url, internalIPPattern, sprintf("%s: %s", headerName, headerValueStr), responseRaw, requestRaw)
+            foundCount++
+        }
+    }
+
+    // 检测敏感路径
+    for _, rule = range sensitivePathPatterns {
+        matches = re.FindAll(body, rule.pattern)
+        if len(matches) > 0 {
+            for _, match = range matches {
+                aiOut(sprintf("  ✓ 发现敏感路径: %s", match))
+                reportSensitiveLeak(url, rule, match, responseRaw, requestRaw)
+                foundCount++
+            }
+        }
+    }
+
+    if foundCount == 0 {
+        aiOut("  → 未发现中危敏感信息")
+    }
+}
+
+// 低危信息检测（手机号、身份证、邮箱，带阈值过滤）
+detectLowRiskInfo = func(responseRaw, body, url, requestRaw) {
+    foundCount = 0
+
+    // 检测手机号（需要连续出现 3 个以上）
+    phones = re.FindAll(body, phonePattern.pattern)
+    if len(phones) >= phonePattern.threshold {
+        aiOut(sprintf("  ✓ 发现大量手机号: %d 个", len(phones)))
+        reportSensitiveLeak(url, phonePattern, sprintf("共 %d 个手机号", len(phones)), responseRaw, requestRaw)
+        foundCount++
+    }
+
+    // 检测身份证号（需要连续出现 3 个以上）
+    idCards = re.FindAll(body, idCardPattern.pattern)
+    if len(idCards) >= idCardPattern.threshold {
+        aiOut(sprintf("  ✓ 发现大量身份证号: %d 个", len(idCards)))
+        reportSensitiveLeak(url, idCardPattern, sprintf("共 %d 个身份证号", len(idCards)), responseRaw, requestRaw)
+        foundCount++
+    }
+
+    // 检测邮箱（智能过滤公共域名）
+    emails = re.FindAll(body, emailPattern.pattern)
+    filteredEmails = []
+
+    for _, email = range emails {
+        // 过滤公共邮箱域名
+        isPublic = false
+        for _, domain = range emailPattern.public_domains {
+            if str.Contains(email, "@" + domain) {
+                isPublic = true
+                break
+            }
+        }
+
+        if !isPublic {
+            // 检查是否在联系信息标签附近
+            isContact = false
+            for _, tag = range emailPattern.filter_tags {
+                if str.Contains(body, tag + email) || str.Contains(body, email + tag) {
+                    isContact = true
+                    break
+                }
+            }
+
+            if !isContact {
+                filteredEmails = append(filteredEmails, email)
+            }
+        }
+    }
+
+    if len(filteredEmails) > 0 {
+        aiOut(sprintf("  ✓ 发现内部邮箱地址: %d 个", len(filteredEmails)))
+        for _, email = range filteredEmails {
+            aiOut(sprintf("    - %s", email))
+        }
+        reportSensitiveLeak(url, emailPattern, sprintf("共 %d 个内部邮箱", len(filteredEmails)), responseRaw, requestRaw)
+        foundCount++
+    }
+
+    if foundCount == 0 {
+        aiOut("  → 未发现低危敏感信息")
+    }
+}
+
+// 主检测函数
+detectSensitiveInfo = func(httpflowID) {
+    aiOut("=== 开始敏感信息泄露检测 ===\n")
+
+    // 1. 获取 HTTPFlow
+    flowsChan = db.QueryHTTPFlowsByID(httpflowID)
+    flow = nil
+    for f = range flowsChan {
+        flow = f
+        break
+    }
+
+    if flow == nil {
+        aiOut("× 未找到 HTTPFlow")
+        return
+    }
+
+    aiOut(sprintf("→ 目标 URL: %s", flow.Url))
+
+    // 2. 提取请求包和响应包
+    requestRaw = flow.GetRequest()
+    responseRaw = flow.GetResponse()
+
+    if responseRaw == nil || len(responseRaw) == 0 {
+        aiOut("× 响应包为空，无法检测")
+        return
+    }
+
+    responseBody, err = str.ExtractBodyFromHTTPResponseRaw(responseRaw)
+    if err != nil {
+        aiOut(sprintf("! 提取响应 Body 失败: %v", err))
+        responseBody = string(responseRaw)
+    }
+
+    aiOut(sprintf("→ 响应大小: %d 字节\n", len(responseBody)))
+
+    // 3. 高危信息检测（无条件报告）
+    aiOut("[阶段 1/3] 检测高危敏感信息...")
+    detectHighRiskInfo(responseRaw, responseBody, flow.Url, requestRaw)
+
+    // 4. 中危信息检测（上下文感知）
+    aiOut("\n[阶段 2/3] 检测中危敏感信息（上下文过滤）...")
+    detectMediumRiskInfo(responseRaw, responseBody, flow.Url, requestRaw)
+
+    // 5. 低危信息检测（阈值过滤）
+    aiOut("\n[阶段 3/3] 检测低危敏感信息（批量泄露）...")
+    detectLowRiskInfo(responseRaw, responseBody, flow.Url, requestRaw)
+
+    aiOut("\n=== 敏感信息检测完成 ===")
+}
+
+// -------------------------------------------------------------------
+// 主程序入口
+// -------------------------------------------------------------------
+
+flowID = parseInt(flowIDStr)
+detectSensitiveInfo(flowID)

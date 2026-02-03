@@ -1,0 +1,824 @@
+__DESC__ = "检测任意文件上传漏洞，支持后缀绕过、Content-Type 伪装、文件名截断等多种攻击手法（内网专用，仅上传纯文本内容）"
+__VERBOSE_NAME__ = "任意文件上传检测"
+__KEYWORDS__ = "file-upload,unrestricted-file-upload,arbitrary-file-upload,webshell,rce"
+
+// 配置项
+debug = false
+threads = 5  // 文件上传通常较慢，不宜过高并发
+
+// -------------------------------------------------------------------
+// CLI 参数定义
+// -------------------------------------------------------------------
+flowIDStr = cli.String(
+    "httpflow-id",
+    cli.setVerboseName("HTTPFlowID"),
+    cli.setHelp("History 中的 HTTPFlow ID,用于获取请求/响应包内容"),
+    cli.setRequired(true),
+)
+cli.check()
+
+// 辅助输出函数
+aiOut = msg => {
+    try {
+        yakit.AIOutput(msg)
+    } catch {
+        println(msg)
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心数据结构
+// -------------------------------------------------------------------
+
+// 全局环境变量
+detectedOS = ""        // linux, windows
+detectedWebServer = "" // apache, nginx, iis, tomcat
+
+// 文件后缀绕过 Payloads（轻量版 - 仅文本内容）
+uploadPayloads = [
+    // PHP 系列（上传文本内容，不执行代码）
+    {
+        "suffix": ".php",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux/windows",
+        "webserver": "apache/nginx/iis"
+    },
+    {
+        "suffix": ".php5",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux/windows",
+        "webserver": "apache/nginx"
+    },
+    {
+        "suffix": ".phtml",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux/windows",
+        "webserver": "apache"
+    },
+
+    // 大小写绕过
+    {
+        "suffix": ".PhP",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "windows",
+        "webserver": ""
+    },
+    {
+        "suffix": ".pHp",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "windows",
+        "webserver": ""
+    },
+
+    // JSP 系列（Java）
+    {
+        "suffix": ".jsp",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux/windows",
+        "webserver": "tomcat/jboss/weblogic"
+    },
+    {
+        "suffix": ".jspx",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux/windows",
+        "webserver": "tomcat/jboss"
+    },
+
+    // ASP.NET 系列
+    {
+        "suffix": ".aspx",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "windows",
+        "webserver": "iis"
+    },
+    {
+        "suffix": ".ashx",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "windows",
+        "webserver": "iis"
+    },
+    {
+        "suffix": ".asa",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "windows",
+        "webserver": "iis"
+    },
+
+    // 双重后缀绕过
+    {
+        "suffix": ".php.jpg",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "",
+        "webserver": "",
+        "bypass_type": "double-extension"
+    },
+    {
+        "suffix": ".jsp.png",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "",
+        "webserver": "",
+        "bypass_type": "double-extension"
+    },
+    {
+        "suffix": ".aspx.gif",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "windows",
+        "webserver": "",
+        "bypass_type": "double-extension"
+    },
+
+    // 空字节截断（PHP < 5.3.4）
+    {
+        "suffix": ".php%00.jpg",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "",
+        "webserver": "",
+        "bypass_type": "null-byte-injection"
+    },
+
+    // .htaccess 配置文件上传（危险！）
+    {
+        "suffix": ".htaccess",
+        "content": "# Test htaccess upload - {{VERIFY}}",
+        "risk_level": "critical",
+        "os": "linux",
+        "webserver": "apache",
+        "bypass_type": "config-override"
+    },
+
+    // web.config 配置文件（IIS）
+    {
+        "suffix": ".config",
+        "content": "<!-- Test config upload - {{VERIFY}} -->",
+        "risk_level": "critical",
+        "os": "windows",
+        "webserver": "iis",
+        "bypass_type": "config-override"
+    },
+
+    // 其他危险后缀
+    {
+        "suffix": ".cer",  // 证书文件，可能被当作 ASP 执行
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "medium",
+        "os": "windows",
+        "webserver": "iis"
+    },
+    {
+        "suffix": ".asa",
+        "content": "Test file upload - {{VERIFY}}",
+        "risk_level": "high",
+        "os": "windows",
+        "webserver": "iis"
+    },
+]
+
+// Content-Type 绕过
+contentTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "text/plain",
+    "application/octet-stream",
+]
+
+// -------------------------------------------------------------------
+// 辅助函数
+// -------------------------------------------------------------------
+
+// 构造安全的验证内容
+buildSafeContent = func(verifyStr, suffix) {
+    // 所有文件都使用纯文本内容
+    baseContent = sprintf("Test file upload security check\nVerify: %s\nExtension: %s", verifyStr, suffix)
+
+    // 如果是 .htaccess，添加注释说明
+    if suffix == ".htaccess" {
+        return sprintf("# Security test file\n# Verify: %s", verifyStr)
+    }
+
+    // 如果是 .config，添加 XML 注释
+    if suffix == ".config" {
+        return sprintf("<!-- Security test file -->\n<!-- Verify: %s -->", verifyStr)
+    }
+
+    return baseContent
+}
+
+// 环境探测
+detectEnvironment = func(response) {
+    serverHeader = poc.GetHTTPPacketHeader(response, "Server")
+    responseStr = string(response)
+
+    // Web 服务器识别
+    if str.MatchAllOfRegexp(serverHeader, `(?i)apache`) {
+        detectedWebServer = "apache"
+        aiOut("  → 检测到 Web 服务器: Apache")
+    } else if str.MatchAllOfRegexp(serverHeader, `(?i)nginx`) {
+        detectedWebServer = "nginx"
+        aiOut("  → 检测到 Web 服务器: Nginx")
+    } else if str.MatchAllOfRegexp(serverHeader, `(?i)Microsoft-IIS`) {
+        detectedWebServer = "iis"
+        detectedOS = "windows"
+        aiOut("  → 检测到 Web 服务器: IIS (Windows)")
+    } else if str.MatchAllOfRegexp(serverHeader, `(?i)tomcat`) {
+        detectedWebServer = "tomcat"
+        aiOut("  → 检测到 Web 服务器: Tomcat")
+    }
+
+    // 操作系统识别
+    if str.Contains(responseStr, "C:\\") || str.Contains(responseStr, "D:\\") {
+        detectedOS = "windows"
+        aiOut("  → 检测到操作系统: Windows")
+    } else if str.Contains(responseStr, "/var/") || str.Contains(responseStr, "/usr/") || str.Contains(responseStr, "/etc/") {
+        detectedOS = "linux"
+        aiOut("  → 检测到操作系统: Linux")
+    }
+}
+
+// OS 匹配
+matchOS = func(payloadOS, detectedOS) {
+    if payloadOS == "" || detectedOS == "" {
+        return true
+    }
+    return str.Contains(payloadOS, detectedOS)
+}
+
+// WebServer 匹配
+matchWebServer = func(payloadWebServer, detectedWebServer) {
+    if payloadWebServer == "" || detectedWebServer == "" {
+        return true
+    }
+    return str.Contains(payloadWebServer, detectedWebServer)
+}
+
+// 从上传响应中智能提取文件路径
+extractUploadPath = func(response) {
+    responseStr = string(response)
+
+    // 方法 1: JSON 响应解析
+    try {
+        jsonData = json.loads(responseStr)
+
+        // 尝试常见的 JSON 字段
+        possibleKeys = ["path", "url", "file", "filename", "filepath", "file_path", "upload_path", "location", "src", "href"]
+        for _, key = range possibleKeys {
+            if jsonData[key] != nil && jsonData[key] != "" {
+                pathValue = string(jsonData[key])
+                aiOut(sprintf("    → 从 JSON 字段 '%s' 提取路径: %s", key, pathValue))
+                return pathValue
+            }
+        }
+    } catch {}
+
+    // 方法 2: 字符串匹配 - 查找常见的上传路径模式
+    // 查找包含 uploads, files 等关键词的路径
+    pathKeywords = ["uploads/", "upload/", "files/", "file/", "attachments/", "images/", "static/", "assets/"]
+    for _, keyword = range pathKeywords {
+        if str.Contains(responseStr, keyword) {
+            // 找到关键词后，尝试提取完整路径
+            startIdx = str.Index(responseStr, keyword)
+            if startIdx != -1 {
+                // 向前查找到 / 或引号
+                pathStart = startIdx
+                for i = startIdx - 1; i >= 0; i-- {
+                    ch = responseStr[i]
+                    if ch == '/' || ch == '"' || ch == '\'' || ch == ' ' {
+                        pathStart = i + 1
+                        break
+                    }
+                }
+
+                // 向后查找到空格、引号或换行
+                pathEnd = len(responseStr)
+                for i = startIdx; i < len(responseStr); i++ {
+                    ch = responseStr[i]
+                    if ch == ' ' || ch == '"' || ch == '\'' || ch == '\n' || ch == '\r' || ch == '<' || ch == '>' {
+                        pathEnd = i
+                        break
+                    }
+                }
+
+                extractedPath = responseStr[pathStart:pathEnd]
+                // 清理路径
+                extractedPath = str.TrimSpace(extractedPath)
+                extractedPath = str.TrimPrefix(extractedPath, "\"")
+                extractedPath = str.TrimSuffix(extractedPath, "\"")
+                extractedPath = str.TrimPrefix(extractedPath, "'")
+                extractedPath = str.TrimSuffix(extractedPath, "'")
+
+                if len(extractedPath) > 0 {
+                    aiOut(sprintf("    → 通过关键词 '%s' 提取路径: %s", keyword, extractedPath))
+                    return extractedPath
+                }
+            }
+        }
+    }
+
+    // 方法 3: Location 响应头
+    locationHeader = poc.GetHTTPPacketHeader(response, "Location")
+    if locationHeader != "" && locationHeader != nil {
+        aiOut(sprintf("    → 从 Location 头提取路径: %s", locationHeader))
+        return string(locationHeader)
+    }
+
+    return ""  // 无法提取
+}
+
+// 猜测常见上传路径
+guessCommonPaths = func(baseURL) {
+    aiOut("    → 尝试猜测常见上传路径...")
+
+    commonPaths = [
+        "uploads",
+        "upload",
+        "files",
+        "file",
+        "attachments",
+        "attachment",
+        "images",
+        "img",
+        "static/uploads",
+        "public/uploads",
+        "assets/uploads",
+    ]
+
+    // 尝试访问每个路径（快速检测，不阻塞）
+    for _, path = range commonPaths {
+        testURL = sprintf("%s/%s/test.txt", baseURL, path)
+
+        try {
+            rsp, req, err := poc.Get(testURL, poc.timeout(3), poc.https(str.HasPrefix(testURL, "https://")))  // 3秒超时
+
+            if err == nil && rsp != nil {
+                statusCode = rsp.StatusCode
+                // 如果不是 404，说明路径可能存在
+                if statusCode != 404 && statusCode != 403 {
+                    aiOut(sprintf("      ✓ 猜测成功: %s (状态码: %d)", path, statusCode))
+                    return path
+                }
+            }
+        } catch {}
+    }
+
+    aiOut("      × 路径猜测失败")
+    return ""  // 猜测失败
+}
+
+// 构造访问 URL
+buildAccessURL = func(baseURL, uploadPath, filename) {
+    // 提取基础 URL（去掉文件名部分）
+    // 例如: http://example.com/vul/upload/check.php → http://example.com/vul/upload
+
+    // 处理路径拼接
+    if str.HasPrefix(uploadPath, "http://") || str.HasPrefix(uploadPath, "https://") {
+        // 绝对路径
+        if str.HasSuffix(uploadPath, "/") {
+            return sprintf("%s%s", uploadPath, filename)
+        } else {
+            return sprintf("%s/%s", uploadPath, filename)
+        }
+    } else {
+        // 相对路径 - 需要从 baseURL 中提取基础路径
+        // 先提取协议和域名
+        hostStart = 0
+        if str.HasPrefix(baseURL, "https://") {
+            hostStart = str.Index(baseURL, "://") + 3
+        } else if str.HasPrefix(baseURL, "http://") {
+            hostStart = str.Index(baseURL, "://") + 3
+        }
+
+        // 查找第一个 / 后的路径部分
+        pathStart = str.Index(baseURL[hostStart:], "/")
+        baseURLClean = ""  // 提前声明
+
+        if pathStart == -1 {
+            // 没有路径部分，直接使用域名
+            baseURLClean = baseURL
+        } else {
+            // 提取到最后一个 / 之前的部分
+            fullPath = baseURL[hostStart + pathStart:]
+            lastSlash = str.LastIndex(fullPath, "/")
+            if lastSlash > 0 {
+                baseURLClean = baseURL[:hostStart + pathStart + lastSlash]
+            } else {
+                baseURLClean = baseURL[:hostStart + pathStart]
+            }
+        }
+
+        // 拼接路径
+        cleanPath = str.TrimPrefix(uploadPath, "/")
+        if str.HasSuffix(baseURLClean, "/") {
+            return sprintf("%s%s/%s", baseURLClean, cleanPath, filename)
+        } else {
+            return sprintf("%s/%s/%s", baseURLClean, cleanPath, filename)
+        }
+    }
+}
+
+// 验证文件可访问性（轻量版）
+checkFileAccessible = func(response, verifyStr) {
+    if response == nil {
+        return false
+    }
+
+    responseStr = string(response)
+
+    // 检查 1: HTTP 状态码
+    statusCode = poc.GetStatusCodeFromResponse(response)
+    if statusCode != 200 && statusCode != 201 {
+        return false  // 文件不存在或无法访问
+    }
+
+    // 检查 2: 响应内容包含验证字符串
+    if str.Contains(responseStr, verifyStr) {
+        return true
+    }
+
+    // 检查 3: 响应不是错误页面
+    errorKeywords = ["404", "Not Found", "File Not Found", "Access Denied", "Forbidden", "403", "500"]
+    for _, keyword = range errorKeywords {
+        if str.Contains(responseStr, keyword) {
+            return false
+        }
+    }
+
+    return false
+}
+
+// -------------------------------------------------------------------
+// 核心逻辑: 文件上传检测
+// -------------------------------------------------------------------
+
+testFileUpload = func(url, originalPacket, uploadField, isHttps) {
+    aiOut(sprintf("\n正在检测上传字段: %s", uploadField))
+
+    // 1. 生成随机验证字符串
+    verifyRandStr = str.RandStr(16)
+
+    // 2. 先测试无害文件（建立基线）
+    aiOut("  [1/3] 建立基线 - 上传测试文件...")
+    testContent = sprintf("Security test baseline\nVerify: %s", verifyRandStr)
+
+    baselinePacket = poc.AppendHTTPPacketUploadFile(
+        originalPacket,
+        uploadField,
+        "baseline_test.txt",
+        testContent,
+        "text/plain"
+    )
+
+    try {
+        rsp, req, err := poc.HTTP(baselinePacket, poc.https(isHttps))
+        if err != nil {
+            aiOut(sprintf("  ! 基线测试失败: %v", err))
+            return
+        }
+
+        // 封装响应结构
+        res = {"ResponseRaw": rsp, "RequestRaw": req}
+
+        // 探测环境
+        detectEnvironment(res.ResponseRaw)
+
+        // 提取上传路径
+        aiOut("  [2/3] 提取上传路径...")
+
+        // 调试：输出完整响应内容用于分析
+        if debug {
+            bodyContent, _ := str.ExtractBodyFromHTTPResponseRaw(res.ResponseRaw)
+            aiOut(sprintf("    [DEBUG] 响应体长度: %d 字节", len(bodyContent)))
+
+            // 保存响应到临时文件
+            tmpFile = "/tmp/upload_response.html"
+            file.Save(tmpFile, bodyContent)
+            aiOut(sprintf("    [DEBUG] 响应已保存到: %s", tmpFile))
+
+            // 查找所有包含文件扩展名的可能路径
+            possibleExtensions = [".txt", ".php", ".jpg", ".png", ".gif"]
+            for _, ext = range possibleExtensions {
+                if str.Contains(string(bodyContent), ext) {
+                    aiOut(sprintf("    [DEBUG] 响应中包含扩展名: %s", ext))
+                }
+            }
+        }
+
+        uploadPath = extractUploadPath(res.ResponseRaw)
+
+        if uploadPath == "" || len(uploadPath) < 3 {
+            aiOut("    × 无法从响应中提取路径，尝试常见路径猜测...")
+
+            // 根据目标 URL 构造可能的上传路径
+            // 例如：http://example.com/vul/unsafeupload/servercheck.php
+            // 可能的路径：/vul/unsafeupload/uploads/
+
+            baseDir = ""
+            if str.Contains(url, "/vul/") {
+                // 提取 vul 目录路径
+                idx = str.Index(url, "/vul/")
+                if idx != -1 {
+                    endIdx = str.LastIndex(url, "/")
+                    if endIdx > idx {
+                        baseDir = url[idx:endIdx]  // 例如: /vul/unsafeupload
+                    }
+                }
+            }
+
+            // 尝试多个可能的路径
+            possiblePaths = [
+                baseDir + "/uploads",
+                baseDir + "/upload",
+                "uploads",
+                "upload",
+                "files",
+            ]
+
+            for _, testPath = range possiblePaths {
+                aiOut(sprintf("      → 测试路径: %s", testPath))
+
+                // 尝试访问 baseline_test.txt
+                testURL = buildAccessURL(url, testPath, "baseline_test.txt")
+                aiOut(sprintf("        → 完整URL: %s", testURL))
+
+                try {
+                    testRsp, _, testErr := poc.Get(testURL, poc.timeout(3), poc.https(str.HasPrefix(testURL, "https://")))
+
+                    if testErr != nil {
+                        aiOut(sprintf("        × 请求失败: %v", testErr))
+                    } else if testRsp != nil {
+                        statusCode = testRsp.GetStatusCode()
+                        aiOut(sprintf("        → HTTP状态码: %d", statusCode))
+
+                        // 只要文件可访问（200），就认为路径正确
+                        if statusCode == 200 {
+                            uploadPath = testPath
+                            aiOut(sprintf("      ✓ 路径验证成功: %s (文件可访问)", testPath))
+                            break
+                        } else {
+                            aiOut(sprintf("        × 状态码不是200，继续尝试..."))
+                        }
+                    } else {
+                        aiOut("        × 响应为空")
+                    }
+                } catch e {
+                    aiOut(sprintf("        × 异常: %v", e))
+                }
+            }
+        }
+
+        if uploadPath == "" {
+            aiOut("    × 无法从响应中提取路径，尝试常见路径猜测...")
+            uploadPath = guessCommonPaths(url)
+        }
+
+        if uploadPath == "" {
+            aiOut("  ! 无法确定上传路径，跳过该字段")
+            return
+        }
+
+        aiOut(sprintf("  → 最终上传路径: %s", uploadPath))
+
+        // 3. 遍历危险后缀 Payload
+        aiOut("  [3/3] 测试危险后缀绕过...")
+        foundVuln = false
+        testedCount = 0
+
+        for _, p = range uploadPayloads {
+            if foundVuln {
+                break  // 快速失败
+            }
+
+            // 环境自适应剪枝
+            if !matchOS(p.os, detectedOS) {
+                continue
+            }
+            if !matchWebServer(p.webserver, detectedWebServer) {
+                continue
+            }
+
+            testedCount++
+            suffix = p.suffix
+
+            aiOut(sprintf("    [测试 %d] 尝试上传: %s", testedCount, suffix))
+
+            // 构造验证内容（纯文本，无代码）
+            verifyContent = buildSafeContent(verifyRandStr, suffix)
+
+            // 生成随机文件名
+            randomFilename = sprintf("test_%s%s", str.RandStr(4), suffix)
+
+            // 上传文件
+            uploadPacket = poc.ReplaceHTTPPacketUploadFile(
+                originalPacket,
+                uploadField,
+                randomFilename,
+                verifyContent,
+                contentTypes[0]  // 使用伪装的 Content-Type
+            )
+
+            uploadRsp, uploadReq, uploadErr := poc.HTTP(uploadPacket, poc.https(isHttps))
+            if uploadErr != nil {
+                aiOut(sprintf("      × 上传请求失败: %v", uploadErr))
+                continue
+            }
+
+            // 尝试访问上传的文件
+            accessURL = buildAccessURL(url, uploadPath, randomFilename)
+            aiOut(sprintf("      → 尝试访问: %s", accessURL))
+
+            try {
+                accessRsp, accessReq, accessErr := poc.Get(accessURL, poc.timeout(5), poc.https(str.HasPrefix(accessURL, "https://")))
+
+                if accessErr != nil {
+                    aiOut(sprintf("      × 访问失败: %v", accessErr))
+                    continue
+                }
+
+                // 验证文件是否可访问且内容正确
+                if checkFileAccessible(accessRsp.RawPacket, verifyRandStr) {
+                    // 发现漏洞！
+                    aiOut(sprintf("      ✓ 成功！可上传并访问危险后缀: %s", suffix))
+                    foundVuln = true
+
+                    // 上报漏洞
+                    reportVuln(url, uploadField, p, uploadReq, accessRsp.RawPacket, randomFilename, accessURL)
+                    break  // 快速退出，不再测试其他后缀
+                } else {
+                    aiOut(sprintf("      × 文件不可访问或内容不匹配"))
+                }
+            } catch err {
+                aiOut(sprintf("      × 访问异常: %v", err))
+            }
+        }
+
+        if !foundVuln {
+            aiOut("  → 所有危险后缀均被拦截，未发现文件上传漏洞")
+        }
+
+    } catch err {
+        aiOut(sprintf("  ! 检测过程出错: %v", err))
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心逻辑: 风险上报
+// -------------------------------------------------------------------
+
+reportVuln = func(url, uploadField, payload, uploadReq, accessRes, filename, accessURL) {
+    suffix = payload.suffix
+    riskLevel = payload.risk_level
+    bypassType = payload["bypass_type"]
+
+    if bypassType == nil || bypassType == "" {
+        bypassType = "suffix-bypass"
+    }
+
+    title = sprintf("Arbitrary File Upload (%s): %s", suffix, url)
+    description = sprintf("通过字段 '%s' 成功上传了危险后缀文件 '%s'。\n文件可通过 URL 访问: %s\n\n绕过类型: %s\n检测环境: OS=%s, WebServer=%s\n\n⚠️ 注意: 本检测仅上传纯文本内容进行权限验证，未上传真实 Webshell。",
+        uploadField,
+        filename,
+        accessURL,
+        bypassType,
+        detectedOS,
+        detectedWebServer
+    )
+
+    severity = "high"
+    if riskLevel == "critical" {
+        severity = "critical"
+    } else if riskLevel == "medium" {
+        severity = "medium"
+    }
+
+    aiOut(sprintf("✓ 发现文件上传漏洞: %s", title))
+
+    risk.NewRisk(
+        url,
+        risk.title(title),
+        risk.titleVerbose(sprintf("任意文件上传漏洞: %s", url)),
+        risk.details({
+            "upload_field": uploadField,
+            "filename": filename,
+            "suffix": suffix,
+            "bypass_type": bypassType,
+            "webserver": detectedWebServer,
+            "os": detectedOS,
+            "access_url": accessURL,
+        }),
+        risk.type("file-upload"),
+        risk.severity(severity),
+        risk.payload(sprintf("filename=%s, content-type=%s", filename, contentTypes[0])),
+        risk.request(uploadReq),
+        risk.response(accessRes),
+        risk.description(description),
+        risk.solution("1. 严格限制上传文件类型白名单（仅允许必要的文件类型）。\n2. 对文件名进行过滤，禁止 ../ 等路径穿越字符。\n3. 上传文件存储在非 Web 目录，或通过独立域名访问。\n4. 对上传文件进行重命名（使用随机 UUID）。\n5. 禁用脚本解析（如 PHP、JSP）或使用独立的对象存储服务（如 OSS、S3）。\n6. 检查文件内容，而不仅仅是后缀名。")
+    )
+}
+
+// -------------------------------------------------------------------
+// 主程序入口
+// -------------------------------------------------------------------
+
+flowID = parseInt(flowIDStr)
+flowsChan := db.QueryHTTPFlowsByID(flowID)
+flow = nil
+for f := range flowsChan {
+    flow = f
+    break
+}
+
+if flow == nil {
+    aiOut(sprintf("HTTPFlow 查询失败: 未找到 ID 为 %v 的请求", flowID))
+    return
+}
+
+reqBytes = flow.GetRequest()
+if reqBytes == nil { reqBytes = []byte(flow.Request) }
+if reqBytes == nil || len(reqBytes) == 0 {
+    aiOut("请求包为空,无法检测")
+    return
+}
+
+isHttps = flow.IsHTTPS
+url = flow.Url
+
+aiOut(sprintf("开始任意文件上传漏洞检测 (Target: %s)...", url))
+
+// 检查是否为 multipart 请求
+contentType = poc.GetHTTPPacketHeader(reqBytes, "Content-Type")
+isMultipart = str.Contains(string(contentType), "multipart/form-data")
+
+if !isMultipart {
+    aiOut("⚠️  该请求不是 multipart/form-data 类型，可能不是文件上传请求")
+    aiOut("    继续尝试检测...")
+}
+
+// 识别上传字段
+aiOut("\n识别文件上传字段...")
+uploadFields = []
+
+// 方法 1: 解析 multipart 表单
+if isMultipart {
+    try {
+        poc.ParseMultiPartFormWithCallback(reqBytes, func(part) {
+            try {
+                formName = part.FormName()
+                fileName = part.FileName()
+
+                if fileName != "" && fileName != nil {
+                    // 这是一个文件字段
+                    aiOut(sprintf("  → 发现文件字段: %s (原文件名: %s)", formName, fileName))
+                    uploadFields = append(uploadFields, formName)
+                }
+            } catch {}
+        })
+    } catch err {
+        aiOut(sprintf("  ! 解析 multipart 失败: %v", err))
+    }
+}
+
+// 方法 2: 通过参数名推测（fallback）
+if len(uploadFields) == 0 {
+    aiOut("  → 未找到文件字段，尝试通过参数名推测...")
+
+    freq, err := fuzz.HTTPRequest(reqBytes, fuzz.https(isHttps))
+    if err == nil {
+        allParams = freq.GetCommonParams()
+
+        for param in allParams {
+            paramName = str.ToLower(param.Name())
+            if str.MatchAnyOfRegexp(paramName, `file|upload|attach|avatar|photo|image|document|doc|pic`) {
+                aiOut(sprintf("  → 推测可能的上传字段: %s", param.Name()))
+                uploadFields = append(uploadFields, param.Name())
+            }
+        }
+    }
+}
+
+if len(uploadFields) == 0 {
+    aiOut("× 未发现可测试的上传字段")
+    aiOut("  提示: 请确保选择的是文件上传请求（multipart/form-data）")
+    return
+}
+
+aiOut(sprintf("\n共发现 %d 个上传字段，开始检测...", len(uploadFields)))
+
+// 执行检测
+for _, uploadField = range uploadFields {
+    testFileUpload(url, reqBytes, uploadField, isHttps)
+}
+
+aiOut("\n=== 任意文件上传检测完成 ===")

@@ -1,0 +1,626 @@
+__DESC__ = "Detects Open Redirect vulnerabilities through multi-layered detection: Location header analysis, HTML meta refresh tags, and JavaScript redirects"
+__VERBOSE_NAME__ = "开放重定向检测"
+__KEYWORDS__ = "open-redirect,url-redirect,location,phishing,logic-vulnerability"
+
+// 配置项
+debug = false
+threads = 5
+
+// -------------------------------------------------------------------
+// CLI 参数定义
+// -------------------------------------------------------------------
+flowIDStr = cli.String(
+    "httpflow-id",
+    cli.setVerboseName("HTTPFlowID"),
+    cli.setHelp("History 中的 HTTPFlow ID，用于获取请求/响应包内容"),
+    cli.setRequired(true),
+)
+cli.check()
+
+// 辅助输出函数
+aiOut = msg => {
+    try {
+        yakit.AIOutput(msg)
+    } catch {
+        println(msg)
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心数据结构
+// -------------------------------------------------------------------
+
+// 基础外部域名 Payload
+externalPayloads = [
+    "https://evil.com",
+    "http://evil.com",
+    "//evil.com",
+    "https://evil.com/path?query=value",
+]
+
+// 绕过技巧 Payload
+bypassPayloads = [
+    // URL 编码绕过
+    "https%3A%2F%2Fevil.com",
+
+    // 双斜杠绕过
+    "https:///evil.com",
+
+    // @ 符号绕过（将前面部分视为用户名）
+    "https://trusted.com@evil.com",
+
+    // 反斜杠绕过
+    "https://trusted.com\\evil.com",
+
+    // 点号绕过
+    "https://evil.com.",
+
+    // 子域名混淆
+    "https://trusted.com.evil.com",
+
+    // IP 地址绕过
+    "http://127.0.0.1",
+    "http://0.0.0.0",
+
+    // 特殊协议
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+]
+
+// 高危参数名（优先检测）
+suspiciousParams = [
+    // 通用重定向参数
+    "url", "redirect", "redir", "redirect_uri", "redirect_url",
+    "return", "returnurl", "return_url", "returnto", "return_to",
+    "next", "goto", "target", "destination", "dest",
+    "continue", "callback", "callbackurl", "callback_url",
+    "location", "link", "forward", "forwardurl",
+
+    // OAuth 相关
+    "state", "oauth_callback", "authorize",
+
+    // 多语言
+    "跳转", "回调", "返回",
+]
+
+// 3xx 重定向状态码
+redirectStatusCodes = [301, 302, 303, 307, 308]
+
+// -------------------------------------------------------------------
+// 辅助函数
+// -------------------------------------------------------------------
+
+// 提取 URL 中的域名
+extractDomain = func(url) {
+    // 移除协议
+    url = re.ReplaceAll(url, `^https?://`, "")
+    url = re.ReplaceAll(url, `^//`, "")
+
+    // 提取域名部分（去除路径、端口）
+    parts = str.Split(url, "/")
+    if len(parts) > 0 {
+        hostPort = parts[0]
+        // 移除端口
+        host = str.Split(hostPort, ":")[0]
+        return host
+    }
+
+    return url
+}
+
+// 提取 URL 中的主机名（包含端口）
+extractHost = func(url) {
+    // 移除协议
+    url = re.ReplaceAll(url, `^https?://`, "")
+    url = re.ReplaceAll(url, `^//`, "")
+
+    // 提取主机:端口部分
+    parts = str.Split(url, "/")
+    if len(parts) > 0 {
+        return parts[0]
+    }
+
+    return url
+}
+
+// 判断是否为同一域名（包括子域名）
+isSameDomain = func(domain1, domain2) {
+    domain1 = str.ToLower(domain1)
+    domain2 = str.ToLower(domain2)
+
+    // 完全相同
+    if domain1 == domain2 {
+        return true
+    }
+
+    // 提取主域名（简单判断）
+    getMainDomain = func(domain) {
+        parts = str.Split(domain, ".")
+        if len(parts) >= 2 {
+            return parts[len(parts)-2] + "." + parts[len(parts)-1]
+        }
+        return domain
+    }
+
+    main1 = getMainDomain(domain1)
+    main2 = getMainDomain(domain2)
+
+    return main1 == main2
+}
+
+// 判断是否为外部重定向
+isExternalRedirect = func(location, payload, currentUrl) {
+    // 1. 相对路径不算外部重定向
+    if str.HasPrefix(location, "/") && !str.HasPrefix(location, "//") {
+        return false
+    }
+
+    // 2. 空 location
+    if location == "" {
+        return false
+    }
+
+    // 3. 检查是否包含 Payload 的关键部分
+    payloadDomain = extractDomain(payload)
+    if payloadDomain != "" && !str.Contains(location, payloadDomain) {
+        // 如果是特殊协议（javascript:, data:），也认为是外部重定向
+        if str.HasPrefix(str.ToLower(location), "javascript:") ||
+           str.HasPrefix(str.ToLower(location), "data:") {
+            return true
+        }
+        return false
+    }
+
+    // 4. 检查是否重定向到当前站点
+    currentHost = extractDomain(currentUrl)
+    redirectHost = extractDomain(location)
+
+    if isSameDomain(currentHost, redirectHost) {
+        return false
+    }
+
+    return true
+}
+
+// 检查状态码是否为重定向
+isRedirectStatus = func(statusCode) {
+    for _, code = range redirectStatusCodes {
+        if statusCode == code {
+            return true
+        }
+    }
+    return false
+}
+
+// 判断参数是否为高危参数
+isSuspiciousParam = func(paramName) {
+    lowerName = str.ToLower(paramName)
+    for _, keyword = range suspiciousParams {
+        if str.Contains(lowerName, str.ToLower(keyword)) {
+            return true
+        }
+    }
+    return false
+}
+
+// -------------------------------------------------------------------
+// 检测函数
+// -------------------------------------------------------------------
+
+// 阶段 1: Location 响应头检测
+detectLocationRedirect = func(param, payload, flow) {
+    if debug {
+        aiOut(sprintf("  [DEBUG] Testing param '%s' with payload: %s", param.Name(), payload))
+    }
+
+    results, err = param.Fuzz(payload).ExecFirst()
+
+    if err != nil {
+        if debug {
+            aiOut(sprintf("  [DEBUG] Request failed: %v", err))
+        }
+        return false, nil, nil
+    }
+
+    respRaw = results.ResponseRaw
+
+    // 提取状态码（从响应的第一行，如 "HTTP/1.1 302 Found"）
+    statusCode = 0
+    firstLine = str.Split(string(respRaw), "\n")[0]
+    firstLine = str.Split(firstLine, "\r")[0]  // 去除 \r
+    parts = re.FindAll(firstLine, `HTTP/\d\.\d\s+(\d{3})`)
+    if len(parts) > 0 {
+        // 提取数字部分
+        codeMatch = re.FindAll(parts[0], `(\d{3})`)
+        if len(codeMatch) > 0 {
+            statusCode = parseInt(codeMatch[0])
+        }
+    }
+
+    if debug {
+        aiOut(sprintf("  [DEBUG] Status code: %d", statusCode))
+    }
+
+    // 检查 3xx 重定向状态码
+    if !isRedirectStatus(statusCode) {
+        return false, nil, nil
+    }
+
+    // 提取 Location 头
+    location = poc.GetHTTPPacketHeader(respRaw, "Location")
+    if location == "" {
+        if debug {
+            aiOut("  [DEBUG] No Location header found")
+        }
+        return false, nil, nil
+    }
+
+    if debug {
+        aiOut(sprintf("  [DEBUG] Location header: %s", location))
+    }
+
+    // 判断是否重定向到外部域名
+    if isExternalRedirect(location, payload, flow.Url) {
+        return true, location, results
+    }
+
+    return false, nil, nil
+}
+
+// 阶段 2: HTML Meta 刷新检测
+detectMetaRefresh = func(param, payload, flow) {
+    if debug {
+        aiOut(sprintf("  [DEBUG] Testing meta refresh for param '%s'", param.Name()))
+    }
+
+    results, err = param.Fuzz(payload).ExecFirst()
+
+    if err != nil {
+        return false, nil, nil
+    }
+
+    respRaw = results.ResponseRaw
+    body, err = str.ExtractBodyFromHTTPResponseRaw(respRaw)
+    if err != nil || body == "" {
+        return false, nil, nil
+    }
+
+    // 正则匹配 <meta http-equiv="refresh" content="...url=...">
+    // 简化匹配：先查找包含 refresh 的 meta 标签，再提取 URL
+    metaPattern = `(?i)<meta[^>]*refresh[^>]*>`
+    metaTags = re.FindAll(body, metaPattern)
+
+    if len(metaTags) > 0 {
+        for _, metaTag = range metaTags {
+            // 从 meta 标签中提取 URL
+            urlPattern = `url\s*=\s*["']?([^"'\s>]+)`
+            urls = re.FindAll(metaTag, urlPattern)
+
+            if len(urls) > 0 {
+                for _, urlMatch = range urls {
+                    // 提取 URL 部分（去除 "url=" 前缀）
+                    metaUrl = re.FindAll(urlMatch, `["']?([^"'\s>]+)$`)
+                    if len(metaUrl) > 0 {
+                        actualUrl = metaUrl[0]
+                        if debug {
+                            aiOut(sprintf("  [DEBUG] Found meta refresh URL: %s", actualUrl))
+                        }
+
+                        if isExternalRedirect(actualUrl, payload, flow.Url) {
+                            return true, actualUrl, results
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false, nil, nil
+}
+
+// 阶段 3: JavaScript 重定向检测
+detectJSRedirect = func(param, payload, flow) {
+    if debug {
+        aiOut(sprintf("  [DEBUG] Testing JS redirect for param '%s'", param.Name()))
+    }
+
+    results, err = param.Fuzz(payload).ExecFirst()
+
+    if err != nil {
+        return false, nil, nil
+    }
+
+    respRaw = results.ResponseRaw
+    body, err = str.ExtractBodyFromHTTPResponseRaw(respRaw)
+    if err != nil || body == "" {
+        return false, nil, nil
+    }
+
+    // JavaScript 重定向模式
+    jsPatterns = [
+        `window\.location\s*=\s*["']([^"']+)["']`,
+        `window\.location\.href\s*=\s*["']([^"']+)["']`,
+        `document\.location\s*=\s*["']([^"']+)["']`,
+        `document\.location\.href\s*=\s*["']([^"']+)["']`,
+        `location\.replace\s*\(\s*["']([^"']+)["']\s*\)`,
+        `location\.assign\s*\(\s*["']([^"']+)["']\s*\)`,
+        `window\.location\.replace\s*\(\s*["']([^"']+)["']\s*\)`,
+    ]
+
+    for _, pattern = range jsPatterns {
+        matches = re.FindAll(body, pattern)
+        if len(matches) > 0 {
+            for _, match = range matches {
+                // 从匹配中提取 URL（去除引号和代码）
+                urlPattern = `["']([^"']+)["']`
+                urls = re.FindAll(match, urlPattern)
+
+                if len(urls) > 0 {
+                    jsUrl = str.TrimPrefix(urls[0], `"`)
+                    jsUrl = str.TrimPrefix(jsUrl, `'`)
+                    jsUrl = str.TrimSuffix(jsUrl, `"`)
+                    jsUrl = str.TrimSuffix(jsUrl, `'`)
+
+                    if debug {
+                        aiOut(sprintf("  [DEBUG] Found JS redirect URL: %s", jsUrl))
+                    }
+
+                    if isExternalRedirect(jsUrl, payload, flow.Url) {
+                        return true, jsUrl, results
+                    }
+                }
+            }
+        }
+    }
+
+    return false, nil, nil
+}
+
+// -------------------------------------------------------------------
+// 风险上报
+// -------------------------------------------------------------------
+
+reportRisk = func(url, param, payload, redirectUrl, method, requestRaw, responseRaw) {
+    risk.NewRisk(
+        url,
+        risk.title(sprintf("Open Redirect: %s", url)),
+        risk.titleVerbose(sprintf("开放重定向: %s", url)),
+        risk.type("logic"),
+        risk.severity("medium"),
+        risk.request(requestRaw),
+        risk.response(responseRaw),
+        risk.payload(payload),
+        risk.details({
+            "param": param.Name(),
+            "redirect_url": redirectUrl,
+            "detection_method": method,
+            "payload": payload,
+        }),
+        risk.description(sprintf(
+            "参数 '%s' 存在开放重定向漏洞。攻击者可以控制重定向目标，将用户重定向到外部恶意站点 '%s'，用于钓鱼攻击或绕过安全控制。",
+            param.Name(),
+            redirectUrl
+        )),
+        risk.solution(
+            "1. 实施重定向白名单，仅允许重定向到受信任的站内 URL\n" +
+            "2. 验证重定向目标的域名与当前站点一致\n" +
+            "3. 避免直接使用用户输入作为重定向目标\n" +
+            "4. 使用间接引用（如 ID 映射）代替直接 URL 参数\n" +
+            "5. 对重定向 URL 进行严格的格式验证"
+        ),
+    )
+}
+
+// -------------------------------------------------------------------
+// 主检测逻辑
+// -------------------------------------------------------------------
+
+detectOpenRedirect = func(flow) {
+    aiOut("=== 开放重定向检测 ===")
+    aiOut(sprintf("→ 目标: %s", flow.Url))
+
+    // 获取请求包
+    requestRaw = flow.GetRequest()
+    isHttps = flow.IsHTTPS
+
+    // 解析请求
+    freq, err = fuzz.HTTPRequest(requestRaw, fuzz.https(isHttps))
+    if err != nil {
+        aiOut(sprintf("× 解析请求失败: %v", err))
+        return
+    }
+
+    // 获取所有参数
+    allParams = freq.GetCommonParams()
+    if len(allParams) == 0 {
+        aiOut("× 未发现可测试参数")
+        return
+    }
+
+    aiOut(sprintf("→ 发现 %d 个参数", len(allParams)))
+
+    // 分类参数：高危参数优先
+    priorityParams = []
+    normalParams = []
+
+    for _, param = range allParams {
+        // 过滤会话令牌等无关参数
+        paramName = str.ToLower(param.Name())
+        if str.Contains(paramName, "session") ||
+           str.Contains(paramName, "token") ||
+           str.Contains(paramName, "csrf") ||
+           str.Contains(paramName, "_ga") ||
+           str.Contains(paramName, "phpsessid") {
+            continue
+        }
+
+        if isSuspiciousParam(param.Name()) {
+            priorityParams = append(priorityParams, param)
+        } else {
+            normalParams = append(normalParams, param)
+        }
+    }
+
+    if len(priorityParams) > 0 {
+        aiOut(sprintf("→ 发现 %d 个高危参数（优先检测）", len(priorityParams)))
+    }
+
+    // 测试所有参数
+    testParams = append(priorityParams, normalParams...)
+
+    vulnerabilityFound = false
+
+    for _, param = range testParams {
+        if vulnerabilityFound {
+            break
+        }
+
+        aiOut(sprintf("\n[测试参数] %s", param.Name()))
+
+        // 阶段 1: Location 响应头检测（最快、最准确）
+        aiOut("  [1/3] Location 响应头检测...")
+
+        // 先测试基础 Payload
+        for _, payload = range externalPayloads {
+            found, redirectUrl, results = detectLocationRedirect(param, payload, flow)
+            if found {
+                aiOut(sprintf("  ✓ 检测到开放重定向！"))
+                aiOut(sprintf("    - Location: %s", redirectUrl))
+                aiOut(sprintf("    - Payload: %s", payload))
+                aiOut(sprintf("    - 检测方法: Location 响应头"))
+
+                reportRisk(
+                    flow.Url,
+                    param,
+                    payload,
+                    redirectUrl,
+                    "location-header",
+                    results.RequestRaw,
+                    results.ResponseRaw,
+                )
+
+                vulnerabilityFound = true
+                break
+            }
+        }
+
+        if vulnerabilityFound {
+            break
+        }
+
+        // 再测试绕过 Payload
+        aiOut("  [1.5/3] 尝试绕过技巧...")
+        for _, payload = range bypassPayloads {
+            found, redirectUrl, results = detectLocationRedirect(param, payload, flow)
+            if found {
+                aiOut(sprintf("  ✓ 检测到开放重定向（绕过）！"))
+                aiOut(sprintf("    - Location: %s", redirectUrl))
+                aiOut(sprintf("    - Payload: %s", payload))
+                aiOut(sprintf("    - 检测方法: Location 响应头（绕过技巧）"))
+
+                reportRisk(
+                    flow.Url,
+                    param,
+                    payload,
+                    redirectUrl,
+                    "location-header-bypass",
+                    results.RequestRaw,
+                    results.ResponseRaw,
+                )
+
+                vulnerabilityFound = true
+                break
+            }
+        }
+
+        if vulnerabilityFound {
+            break
+        }
+
+        // 阶段 2: HTML Meta 刷新检测
+        aiOut("  [2/3] HTML Meta 刷新检测...")
+        for _, payload = range externalPayloads {
+            found, redirectUrl, results = detectMetaRefresh(param, payload, flow)
+            if found {
+                aiOut(sprintf("  ✓ 检测到开放重定向！"))
+                aiOut(sprintf("    - Meta Refresh URL: %s", redirectUrl))
+                aiOut(sprintf("    - Payload: %s", payload))
+                aiOut(sprintf("    - 检测方法: HTML Meta 刷新"))
+
+                reportRisk(
+                    flow.Url,
+                    param,
+                    payload,
+                    redirectUrl,
+                    "meta-refresh",
+                    results.RequestRaw,
+                    results.ResponseRaw,
+                )
+
+                vulnerabilityFound = true
+                break
+            }
+        }
+
+        if vulnerabilityFound {
+            break
+        }
+
+        // 阶段 3: JavaScript 重定向检测
+        aiOut("  [3/3] JavaScript 重定向检测...")
+        for _, payload = range externalPayloads {
+            found, redirectUrl, results = detectJSRedirect(param, payload, flow)
+            if found {
+                aiOut(sprintf("  ✓ 检测到开放重定向！"))
+                aiOut(sprintf("    - JS Redirect URL: %s", redirectUrl))
+                aiOut(sprintf("    - Payload: %s", payload))
+                aiOut(sprintf("    - 检测方法: JavaScript 重定向"))
+
+                reportRisk(
+                    flow.Url,
+                    param,
+                    payload,
+                    redirectUrl,
+                    "javascript-redirect",
+                    results.RequestRaw,
+                    results.ResponseRaw,
+                )
+
+                vulnerabilityFound = true
+                break
+            }
+        }
+
+        if vulnerabilityFound {
+            break
+        }
+
+        aiOut("  × 未发现漏洞")
+    }
+
+    aiOut("\n=== 检测完成 ===")
+    if vulnerabilityFound {
+        aiOut("✓ 发现开放重定向漏洞")
+    } else {
+        aiOut("× 未发现开放重定向漏洞")
+    }
+}
+
+// -------------------------------------------------------------------
+// 主程序入口
+// -------------------------------------------------------------------
+
+flowID = parseInt(flowIDStr)
+flowsChan = db.QueryHTTPFlowsByID(flowID)
+flow = nil
+for f = range flowsChan {
+    flow = f
+    break
+}
+
+if flow == nil {
+    aiOut("× 未找到 HTTPFlow")
+    return
+}
+
+detectOpenRedirect(flow)
