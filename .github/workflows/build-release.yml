@@ -457,6 +457,16 @@ jobs:
           fi
         shell: bash
 
+      - name: Fix desktop Cargo.toml for Windows (avoid "failed to rename app binary")
+        run: |
+          cd opencode-src/packages/desktop/src-tauri
+          if grep -q 'name = "opencode-desktop"' Cargo.toml 2>/dev/null; then
+            sed -i.bak 's/name = "opencode-desktop"/name = "Yaklang"/' Cargo.toml
+            rm -f Cargo.toml.bak
+            echo "Patched Cargo.toml package name to Yaklang"
+          fi
+        shell: bash
+
       - name: Disable updater in prod config (no signing key)
         run: |
           cd opencode-src/packages/desktop
