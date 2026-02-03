@@ -1,0 +1,88 @@
+name: Sync Upstream Release
+
+on:
+  schedule:
+    # 每12小时检查一次上游 release (UTC 0点和12点)
+    - cron: "0 0,12 * * *"
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: "Force sync even if already built"
+        required: false
+        type: boolean
+        default: false
+      upstream_tag:
+        description: "Specific upstream tag to build (optional, e.g., v1.1.6)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for new upstream release
+        id: check
+        run: |
+          # 获取上游最新 release tag
+          if [ -n "${{ inputs.upstream_tag }}" ]; then
+            UPSTREAM_TAG="${{ inputs.upstream_tag }}"
+          else
+            UPSTREAM_TAG=$(curl -s https://api.github.com/repos/anomalyco/opencode/releases/latest | jq -r '.tag_name')
+          fi
+
+          if [ "$UPSTREAM_TAG" == "null" ] || [ -z "$UPSTREAM_TAG" ]; then
+            echo "Failed to get upstream tag"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Upstream tag: $UPSTREAM_TAG"
+          UPSTREAM_VERSION="${UPSTREAM_TAG#v}"
+          EVIL_TAG="${UPSTREAM_TAG}-unguarded"
+
+          # 获取现有的 releases
+          git fetch origin --tags
+
+          # 检查是否已构建过
+          if git rev-parse "$EVIL_TAG" >/dev/null 2>&1; then
+            if [ "${{ inputs.force_sync }}" == "true" ]; then
+              echo "Force build enabled"
+              echo "should_build=true" >> $GITHUB_OUTPUT
+            else
+              echo "Tag $EVIL_TAG already exists, skipping"
+              echo "should_build=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "New release found: $UPSTREAM_TAG -> $EVIL_TAG"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "upstream_tag=$UPSTREAM_TAG" >> $GITHUB_OUTPUT
+          echo "upstream_version=$UPSTREAM_VERSION" >> $GITHUB_OUTPUT
+          echo "evil_tag=$EVIL_TAG" >> $GITHUB_OUTPUT
+
+      - name: Trigger build workflow
+        if: steps.check.outputs.should_build == 'true'
+        run: |
+          UPSTREAM_VERSION="${{ steps.check.outputs.upstream_version }}"
+          EVIL_TAG="${{ steps.check.outputs.evil_tag }}"
+
+          # 使用 GitHub CLI 触发 build-release workflow
+          gh workflow run build-release.yml \
+            --ref main \
+            -f opencode_version="$UPSTREAM_VERSION" \
+            -f release_tag="$EVIL_TAG"
+
+          echo "Triggered build for $EVIL_TAG"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

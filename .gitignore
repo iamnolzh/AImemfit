@@ -1,0 +1,29 @@
+.DS_Store
+node_modules
+.worktrees
+.sst
+.env
+.idea
+.vscode
+*~
+playground
+tmp
+dist
+ts-dist
+.turbo
+**/.serena
+.serena/
+/result
+refs
+Session.vim
+opencode.json
+a.out
+target
+.scripts
+
+# Local dev files
+opencode-dev
+logs/
+
+# Large binary (exceeds GitHub 100MB limit)
+.opencode/skill/auto-pentest/tools/crawler/yak_fast

