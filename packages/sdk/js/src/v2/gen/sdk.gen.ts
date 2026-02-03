@@ -2176,7 +2176,7 @@ export class App extends HeyApiClient {
   /**
    * List skills
    *
-   * Get a list of all available skills for the current project (from .opencode/skill and .claude/skills).
+   * Get a list of all available skills for the current project (from .yaklang/skill and .claude/skills).
    */
   public skills<ThrowOnError extends boolean = false>(
     parameters?: {

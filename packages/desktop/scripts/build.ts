@@ -28,8 +28,8 @@ process.env.OPENCODE_VERSION = process.env.OPENCODE_VERSION ?? "1.1.4"
 delete process.env.CI
 
 const sidecar = getCurrentPlatformSidecar()
-const isWin = process.platform === "win32"
-const cliName = `yaklang${isWin ? ".exe" : ""}`
+const isWinTarget = sidecar.rustTarget.includes("windows")
+const cliName = `yaklang${isWinTarget ? ".exe" : ""}`
 const cliPath = path.join(yaklangDir, "dist", sidecar.ocBinary, "bin", cliName)
 
 console.log("[build] 当前平台:", process.platform, process.arch, "→", sidecar.rustTarget, sidecar.ocBinary)
@@ -39,6 +39,12 @@ await $`bun install`.cwd(repoRoot)
 
 console.log("[build] 构建 yaklang CLI...")
 await $`bun run build --single`.cwd(yaklangDir)
+
+console.log("[build] 同步公共资源...")
+const appPublicDir = path.join(repoRoot, "packages/app/public")
+const desktopPublicDir = path.join(desktopDir, "public")
+await $`mkdir -p ${desktopPublicDir}`
+await $`cp -r ${appPublicDir}/* ${desktopPublicDir}/`
 
 console.log("[build] 复制 sidecar...")
 process.env.RUST_TARGET = sidecar.rustTarget
