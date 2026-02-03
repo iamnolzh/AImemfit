@@ -1,1 +1,1 @@
-.opencode/skill/auto-pentest/tools/crawler/yak_fast filter=lfs diff=lfs merge=lfs -text
+.yaklang/skill/auto-pentest/tools/crawler/yak_fast filter=lfs diff=lfs merge=lfs -text

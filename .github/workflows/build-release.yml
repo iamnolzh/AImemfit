@@ -535,10 +535,11 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repo (for .opencode skills)
+      - name: Checkout repo (for .yaklang skills)
         uses: actions/checkout@v4
         with:
           path: repo
+          lfs: true
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
@@ -630,10 +631,10 @@ jobs:
 
           chmod +x release/opencode-* 2>/dev/null || true
 
-          # Bundle .opencode/skill for users (auto-pentest etc.)
-          if [ -d repo/.opencode ]; then
-            (cd repo && zip -r ../release/opencode-skills.zip .opencode -x "*.git*")
-            echo "Added opencode-skills.zip (contains .opencode/skill)"
+          # Bundle .yaklang/skill for users (auto-pentest etc., yak_fast via LFS)
+          if [ -d repo/.yaklang ]; then
+            (cd repo && zip -r ../release/yaklang-skills.zip .yaklang -x "*.git*")
+            echo "Added yaklang-skills.zip (contains .yaklang/skill including yak_fast)"
           fi
 
           echo ""
@@ -674,13 +675,13 @@ jobs:
 
             ### Skills (auto-pentest, etc.)
 
-            Download `opencode-skills.zip` and extract `.opencode` to your home or project:
+            Download `yaklang-skills.zip` and extract `.yaklang` to your home or project:
 
             ```bash
-            curl -L -o opencode-skills.zip https://github.com/${{ github.repository }}/releases/download/${{ needs.fetch-version.outputs.tag }}/opencode-skills.zip
-            unzip opencode-skills.zip -d ~ && mv ~/.opencode ~/.opencode  # or: unzip -d /path/to/your/project
+            curl -L -o yaklang-skills.zip https://github.com/${{ github.repository }}/releases/download/${{ needs.fetch-version.outputs.tag }}/yaklang-skills.zip
+            unzip yaklang-skills.zip -d ~  # or: unzip -d /path/to/your/project
             ```
-            Or place `.opencode` in your project root so opencode loads skills when run from that directory.
+            Or place `.yaklang` in your project root so yaklang loads skills when run from that directory.
 
             ### Desktop App Downloads
 

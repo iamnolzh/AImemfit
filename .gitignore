@@ -18,8 +18,7 @@ refs
 Session.vim
 # 仅忽略仓库根目录的本地配置，不忽略 packages 内的 theme/yaklang.json
 /yaklang.json
-# .yaklang 可提交，只排除超 100MB 的大文件（GitHub 限制）
-.yaklang/skill/auto-pentest/tools/crawler/yak_fast
+# .yaklang 可提交；yak_fast 用 Git LFS 管理（见 .gitattributes）
 a.out
 target
 .scripts
