@@ -16,8 +16,8 @@ ts-dist
 /result
 refs
 Session.vim
-# 仅忽略仓库根目录的本地配置，不忽略 packages 内的 theme/opencode.json
-/opencode.json
+# 仅忽略仓库根目录的本地配置，不忽略 packages 内的 theme/yaklang.json
+/yaklang.json
 a.out
 target
 .scripts

@@ -24,7 +24,7 @@ jobs:
 
       - name: Build opencode CLI (Windows)
         run: |
-          cd packages/opencode
+          cd packages/yaklang
           OPENCODE_CHANNEL=latest OPENCODE_VERSION=1.1.4 bun run build --single
         shell: bash
         env:
@@ -35,7 +35,7 @@ jobs:
         run: |
           cd packages/desktop
           mkdir -p src-tauri/sidecars
-          cp ../opencode/dist/opencode-windows-x64/bin/opencode.exe src-tauri/sidecars/opencode-cli-x86_64-pc-windows-msvc.exe
+          cp ../yaklang/dist/yaklang-windows-x64/bin/yaklang.exe src-tauri/sidecars/opencode-cli-x86_64-pc-windows-msvc.exe
           ls -la src-tauri/sidecars/
         shell: bash
 

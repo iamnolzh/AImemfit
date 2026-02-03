@@ -20,7 +20,7 @@
       inherit (nixpkgs) lib;
       forEachSystem = lib.genAttrs systems;
       pkgsFor = system: nixpkgs.legacyPackages.${system};
-      packageJson = builtins.fromJSON (builtins.readFile ./packages/opencode/package.json);
+      packageJson = builtins.fromJSON (builtins.readFile ./packages/yaklang/package.json);
       bunTarget = {
         "aarch64-linux" = "bun-linux-arm64";
         "x86_64-linux" = "bun-linux-x64";

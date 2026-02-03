@@ -19,9 +19,9 @@ import { fileURLToPath } from "url"
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const desktopDir = path.resolve(__dirname, "..")
 const repoRoot = path.resolve(desktopDir, "../..")
-const opencodeDir = path.join(repoRoot, "packages/opencode")
+const yaklangDir = path.join(repoRoot, "packages/yaklang")
 
-// 非 git 或 CI 时避免 opencode build 里 git branch 报错
+// 非 git 或 CI 时避免 yaklang build 里 git branch 报错
 process.env.OPENCODE_CHANNEL = process.env.OPENCODE_CHANNEL ?? "latest"
 process.env.OPENCODE_VERSION = process.env.OPENCODE_VERSION ?? "1.1.4"
 // 避免 CI=1 导致 tauri 参数解析错误
@@ -29,16 +29,16 @@ delete process.env.CI
 
 const sidecar = getCurrentPlatformSidecar()
 const isWin = process.platform === "win32"
-const cliName = `opencode${isWin ? ".exe" : ""}`
-const cliPath = path.join(opencodeDir, "dist", sidecar.ocBinary, "bin", cliName)
+const cliName = `yaklang${isWin ? ".exe" : ""}`
+const cliPath = path.join(yaklangDir, "dist", sidecar.ocBinary, "bin", cliName)
 
 console.log("[build] 当前平台:", process.platform, process.arch, "→", sidecar.rustTarget, sidecar.ocBinary)
 
 console.log("[build] 安装依赖...")
 await $`bun install`.cwd(repoRoot)
 
-console.log("[build] 构建 opencode CLI...")
-await $`bun run build --single`.cwd(opencodeDir)
+console.log("[build] 构建 yaklang CLI...")
+await $`bun run build --single`.cwd(yaklangDir)
 
 console.log("[build] 复制 sidecar...")
 process.env.RUST_TARGET = sidecar.rustTarget

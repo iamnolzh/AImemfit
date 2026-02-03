@@ -4,9 +4,9 @@ import { createStore, reconcile, unwrap } from "solid-js/store"
 import { IconArrowDown } from "./icons"
 import { IconOpencode } from "./icons/custom"
 import styles from "./share.module.css"
-import type { MessageV2 } from "opencode/session/message-v2"
-import type { Message } from "opencode/session/message"
-import type { Session } from "opencode/session/index"
+import type { MessageV2 } from "yaklang/session/message-v2"
+import type { Message } from "yaklang/session/message"
+import type { Session } from "yaklang/session/index"
 import { Part, ProviderIcon } from "./share/part"
 
 type MessageWithParts = MessageV2.Info & { parts: MessageV2.Part[] }

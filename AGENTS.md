@@ -1,5 +1,5 @@
-- To test opencode in the `packages/opencode` directory you can run `bun dev`
+- To test yaklang in the `packages/yaklang` directory you can run `bun dev`
 - To regenerate the javascript SDK, run ./packages/sdk/js/script/build.ts
 - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
 - the default branch in this repo is `dev`
-- Qwen 身份：若使用 Ollama/LM Studio 跑 Qwen 时仍回答「我是Qwen/阿里云」，多半是模型自带的 system 覆盖了我们的 prompt。在 Ollama 的 Modelfile 里去掉或清空 PARAMETER system 默认值，让 opencode 传入的 qwen.txt 生效。
+- Qwen 身份：若使用 Ollama/LM Studio 跑 Qwen 时仍回答「我是Qwen/阿里云」，多半是模型自带的 system 覆盖了我们的 prompt。在 Ollama 的 Modelfile 里去掉或清空 PARAMETER system 默认值，让 yaklang 传入的 qwen.txt 生效。

@@ -10,7 +10,7 @@ Set-Location $RepoRoot
 bun install
 
 Write-Host ">>> 构建 opencode CLI (Windows)..." -ForegroundColor Cyan
-Set-Location "$RepoRoot\packages\opencode"
+Set-Location "$RepoRoot\packages\yaklang"
 $env:OPENCODE_CHANNEL = "latest"
 $env:OPENCODE_VERSION = "1.1.4"
 bun run build --single
@@ -18,7 +18,7 @@ bun run build --single
 Write-Host ">>> 复制 sidecar 到 desktop..." -ForegroundColor Cyan
 $SidecarsDir = "$DesktopRoot\src-tauri\sidecars"
 New-Item -ItemType Directory -Force -Path $SidecarsDir | Out-Null
-Copy-Item "$RepoRoot\packages\opencode\dist\opencode-windows-x64\bin\opencode.exe" `
+Copy-Item "$RepoRoot\packages\yaklang\dist\yaklang-windows-x64\bin\yaklang.exe" `
   -Destination "$SidecarsDir\opencode-cli-x86_64-pc-windows-msvc.exe" -Force
 
 Write-Host ">>> 构建 Tauri 桌面应用..." -ForegroundColor Cyan

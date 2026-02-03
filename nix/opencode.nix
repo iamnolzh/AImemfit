@@ -19,7 +19,7 @@ let
     );
 in
 stdenvNoCC.mkDerivation (finalAttrs: {
-  pname = "opencode";
+  pname = "yaklang";
   inherit (args) version src;
 
   node_modules = mkModules {
@@ -43,7 +43,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     cp -r ${finalAttrs.node_modules}/packages .
 
     (
-      cd packages/opencode
+      cd packages/yaklang
 
       chmod -R u+w ./node_modules
       mkdir -p ./node_modules/@opencode-ai
@@ -63,26 +63,26 @@ stdenvNoCC.mkDerivation (finalAttrs: {
   installPhase = ''
     runHook preInstall
 
-    cd packages/opencode
+    cd packages/yaklang
     if [ ! -d dist ]; then
       echo "ERROR: dist directory missing after bundle step"
       exit 1
     fi
 
-    mkdir -p $out/lib/opencode
-    cp -r dist $out/lib/opencode/
-    chmod -R u+w $out/lib/opencode/dist
+    mkdir -p $out/lib/yaklang
+    cp -r dist $out/lib/yaklang/
+    chmod -R u+w $out/lib/yaklang/dist
 
     # Select bundled worker assets deterministically (sorted find output)
-    worker_file=$(find "$out/lib/opencode/dist" -type f \( -path '*/tui/worker.*' -o -name 'worker.*' \) | sort | head -n1)
-    parser_worker_file=$(find "$out/lib/opencode/dist" -type f -name 'parser.worker.*' | sort | head -n1)
+    worker_file=$(find "$out/lib/yaklang/dist" -type f \( -path '*/tui/worker.*' -o -name 'worker.*' \) | sort | head -n1)
+    parser_worker_file=$(find "$out/lib/yaklang/dist" -type f -name 'parser.worker.*' | sort | head -n1)
     if [ -z "$worker_file" ]; then
       echo "ERROR: bundled worker not found"
       exit 1
     fi
 
-    main_wasm=$(printf '%s\n' "$out"/lib/opencode/dist/tree-sitter-*.wasm | sort | head -n1)
-    wasm_list=$(find "$out/lib/opencode/dist" -maxdepth 1 -name 'tree-sitter-*.wasm' -print)
+    main_wasm=$(printf '%s\n' "$out"/lib/yaklang/dist/tree-sitter-*.wasm | sort | head -n1)
+    wasm_list=$(find "$out/lib/yaklang/dist" -maxdepth 1 -name 'tree-sitter-*.wasm' -print)
     for patch_file in "$worker_file" "$parser_worker_file"; do
       [ -z "$patch_file" ] && continue
       [ ! -f "$patch_file" ] && continue
@@ -92,26 +92,26 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       fi
     done
 
-    mkdir -p $out/lib/opencode/node_modules
-    cp -r ../../node_modules/.bun $out/lib/opencode/node_modules/
-    mkdir -p $out/lib/opencode/node_modules/@opentui
+    mkdir -p $out/lib/yaklang/node_modules
+    cp -r ../../node_modules/.bun $out/lib/yaklang/node_modules/
+    mkdir -p $out/lib/yaklang/node_modules/@opentui
 
     mkdir -p $out/bin
-    makeWrapper ${bun}/bin/bun $out/bin/opencode \
+    makeWrapper ${bun}/bin/bun $out/bin/yaklang \
       --add-flags "run" \
-      --add-flags "$out/lib/opencode/dist/src/index.js" \
+      --add-flags "$out/lib/yaklang/dist/src/index.js" \
       --prefix PATH : ${lib.makeBinPath [ ripgrep ]} \
-      --argv0 opencode
+      --argv0 yaklang
 
     runHook postInstall
   '';
 
   postInstall = ''
-    for pkg in $out/lib/opencode/node_modules/.bun/@opentui+core-* $out/lib/opencode/node_modules/.bun/@opentui+solid-* $out/lib/opencode/node_modules/.bun/@opentui+core@* $out/lib/opencode/node_modules/.bun/@opentui+solid@*; do
+    for pkg in $out/lib/yaklang/node_modules/.bun/@opentui+core-* $out/lib/yaklang/node_modules/.bun/@opentui+solid-* $out/lib/yaklang/node_modules/.bun/@opentui+core@* $out/lib/yaklang/node_modules/.bun/@opentui+solid@*; do
       if [ -d "$pkg" ]; then
         pkgName=$(basename "$pkg" | sed 's/@opentui+\([^@]*\)@.*/\1/')
         ln -sf ../.bun/$(basename "$pkg")/node_modules/@opentui/$pkgName \
-          $out/lib/opencode/node_modules/@opentui/$pkgName
+          $out/lib/yaklang/node_modules/@opentui/$pkgName
       fi
     done
   '';
@@ -133,6 +133,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
       "aarch64-darwin"
       "x86_64-darwin"
     ];
-    mainProgram = "opencode";
+    mainProgram = "yaklang";
   };
 })

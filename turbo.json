@@ -6,7 +6,7 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
-    "opencode#test": {
+    "yaklang#test": {
       "dependsOn": ["^build"],
       "outputs": []
     }
