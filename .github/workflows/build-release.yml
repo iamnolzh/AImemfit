@@ -273,8 +273,10 @@ jobs:
           cat > src-tauri/tauri.prod.conf.json << 'EOF'
           {
             "$schema": "https://schema.tauri.app/config/2",
-            "productName": "yaklang",
+            "productName": "Yaklang",
             "identifier": "ai.yaklang.desktop",
+            "version": "0.0.0",
+            "mainBinaryName": "yaklang",
             "bundle": {
               "externalBin": ["yaklang-cli"],
               "createUpdaterArtifacts": false,
