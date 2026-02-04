@@ -30,7 +30,9 @@
       "deb",
       "rpm",
       "nsis",
-      "app"
+      "msi",
+      "app",
+      "dmg"
     ],
     "externalBin": [
       "yaklang-cli"
