@@ -30,8 +30,7 @@
       "deb",
       "rpm",
       "nsis",
-      "app",
-      "appimage"
+      "app"
     ],
     "externalBin": [
       "yaklang-cli"
