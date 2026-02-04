@@ -247,7 +247,21 @@ export namespace Server {
         },
       )
       .use(async (c, next) => {
-        const directory = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
+        let directory = c.req.query("directory") || c.req.header("x-opencode-directory") || process.cwd()
+
+        // Decode base64 directory if applicable (for Unicode support)
+        try {
+          // Check if it looks like base64 (no path separators)
+          if (directory && !/[\\/\\\\]/.test(directory)) {
+            const decoded = decodeURIComponent(escape(atob(directory)))
+            // Verify it's a valid path after decoding
+            if (/[\\/\\\\]/.test(decoded) || decoded.startsWith('.')) {
+              directory = decoded
+            }
+          }
+        } catch {
+          // Not base64 or decode failed, use as-is (backward compatibility)
+        }
         return Instance.provide({
           directory,
           init: InstanceBootstrap,

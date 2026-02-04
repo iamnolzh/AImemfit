@@ -19,9 +19,11 @@ export function createOpencodeClient(config?: Config & { directory?: string }) {
   }
 
   if (config?.directory) {
+    // Encode directory path to base64 to support Unicode characters (e.g., Chinese Windows usernames)
+    const directoryBase64 = btoa(unescape(encodeURIComponent(config.directory)))
     config.headers = {
       ...config.headers,
-      "x-opencode-directory": config.directory,
+      "x-opencode-directory": directoryBase64,
     }
   }
 
