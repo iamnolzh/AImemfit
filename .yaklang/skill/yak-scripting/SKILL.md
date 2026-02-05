@@ -1,9 +1,9 @@
 ---
-name: yak-plugin-write
-description: 写 Yak/Yakit 漏洞检测插件时必用。编写任意类型插件（SQL 注入、XSS、SSRF、文件读写、命令注入等）与 POC、risk 上报；含脚本骨架、risktype、script 案例与 API 易错点
+name: yak-scripting
+description: 编写 Yak/Yakit 漏洞检测插件与 POC 脚本的开发指南，包含脚本骨架、风险上报规范与常用 API 参考
 ---
 
-# Yak 插件编写技能
+# Yak 脚本编写技能
 
 **何时必须使用本 skill**：用户要写**任意类型的 yak 漏洞检测插件**（如 SQL 注入、XSS、SSRF、命令注入、文件读写、XXE、SSTI 等）、yak 插件、Yaklang POC 时，**必须先调用本 skill 加载本文档**，再按文档中的 `script/*.yak` 案例与 `语法/risktype.txt` 编写，不要仅凭 yak-plugins 或通用 Web 漏洞描述写插件。
 
