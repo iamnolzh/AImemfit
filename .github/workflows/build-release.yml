@@ -278,6 +278,8 @@ jobs:
             "version": "0.0.0",
             "mainBinaryName": "yaklang",
             "bundle": {
+              "active": true,
+              "targets": ["deb", "rpm", "nsis", "msi", "app", "dmg"],
               "externalBin": ["yaklang-cli"],
               "createUpdaterArtifacts": false,
               "icon": [
