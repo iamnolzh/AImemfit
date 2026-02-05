@@ -24,7 +24,7 @@ import { TuiThreadCommand } from "./cli/cmd/tui/thread"
 import { TuiSpawnCommand } from "./cli/cmd/tui/spawn"
 import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
-import { WebCommand } from "./cli/cmd/web"
+
 import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 
@@ -91,7 +91,7 @@ const cli = yargs(hideBin(process.argv))
   .command(UpgradeCommand)
   .command(UninstallCommand)
   .command(ServeCommand)
-  .command(WebCommand)
+
   .command(ModelsCommand)
   .command(StatsCommand)
   .command(ExportCommand)
