@@ -479,7 +479,7 @@ export function SessionTurn(
                           data-slot="session-turn-collapsible-trigger-content"
                           variant="ghost"
                           size="small"
-                          onClick={props.onStepsExpandedToggle ?? (() => {})}
+                          onClick={props.onStepsExpandedToggle ?? (() => { })}
                         >
                           <Show when={working()}>
                             <Spinner />
@@ -519,7 +519,7 @@ export function SessionTurn(
                               message={assistantMessage}
                               responsePartId={responsePartId()}
                               hideResponsePart={hideResponsePart()}
-                              hideReasoning={!working()}
+                              hideReasoning={false}
                             />
                           )}
                         </For>
