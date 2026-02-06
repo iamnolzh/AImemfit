@@ -94,9 +94,10 @@ export namespace Config {
 
     for (const dir of unique(directories)) {
       if (dir.endsWith(".yaklang") || dir === Flag.OPENCODE_CONFIG_DIR) {
-        for (const file of ["yaklang.jsonc", "yaklang.json"]) {
+        for (const file of ["yaklang.jsonc", "yaklang.json", "config.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
-          result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
+          const config = await loadFile(path.join(dir, file))
+          result = mergeConfigConcatArrays(result, config)
           // to satisfy the type checker
           result.agent ??= {}
           result.mode ??= {}
@@ -181,11 +182,11 @@ export namespace Config {
       {
         cwd: dir,
       },
-    ).catch(() => {})
+    ).catch(() => { })
 
     // Install any additional dependencies defined in the package.json
     // This allows local plugins and custom tools to use external packages
-    await BunProc.run(["install"], { cwd: dir }).catch(() => {})
+    await BunProc.run(["install"], { cwd: dir }).catch(() => { })
   }
 
   const COMMAND_GLOB = new Bun.Glob("{command,commands}/**/*.md")
@@ -1003,7 +1004,7 @@ export namespace Config {
         await Bun.write(path.join(Global.Path.config, "config.json"), JSON.stringify(result, null, 2))
         await fs.unlink(path.join(Global.Path.config, "config"))
       })
-      .catch(() => {})
+      .catch(() => { })
 
     return result
   })
@@ -1098,7 +1099,7 @@ export namespace Config {
           const plugin = data.plugin[i]
           try {
             data.plugin[i] = import.meta.resolve!(plugin, configFilepath)
-          } catch (err) {}
+          } catch (err) { }
         }
       }
       return data
