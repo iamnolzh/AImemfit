@@ -1,0 +1,42 @@
+func type(i string) RiskParamsOpt
+type 是一个选项参数，用于指定风险类型，可用的风险类型:
+
+SQL 注入: sqli​,sqlinj​,sql-inj,sqlinjection​,sql-injection​
+
+跨站脚本:xss​
+
+远程执行: rce​,rce-command,rce-code​
+
+文件操作: lfi​,file-read​,file-download​,rfi​,file-write​,file-upload​
+
+其他注入类型: xxe​,ssti​
+
+序列化问题: unserialize​,deserialization​
+
+访问控制: unauth-access​
+
+未授权访问​: auth-bypass​,authentication-bypass​,privilege-escalation​
+
+信息泄露: path-traversal​,info-exposure​,information-exposure​
+
+配置与凭证问题: insecure-default​,weak-pass​,weak-password​,weak-credential​
+
+逻辑漏洞: logic​
+
+安全测试: compliance-test​,cve-baseline​
+
+服务端请求伪造: ssrf​
+
+跨站请求伪造 : csrf​
+
+反连检测: random-port-trigger[tcp]​,random-port-trigger[udp]​,reverse​,reverse-​,reverse-tcp​,reverse-tls​,reverse-rmi​,reverse-rmi-handshake​,reverse-http​,reverse-https​,reverse-dns​,reverse-ldap
+
+Example:
+
+risk.NewRisk(
+addr,
+risk.title("CVE-2021-22145"),
+risk.severity("low"),
+risk.titleVerbose("CVE-2021-22145 Elasticsearch 敏感信息泄漏漏洞"),
+risk.type("info-exposure"),
+risk.cve("CVE-2021-22145"),

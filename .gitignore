@@ -1,0 +1,28 @@
+.DS_Store
+node_modules
+.worktrees
+.sst
+.env
+.idea
+.vscode
+*~
+playground
+tmp
+dist
+ts-dist
+.turbo
+**/.serena
+.serena/
+/result
+refs
+Session.vim
+# 仅忽略仓库根目录的本地配置，不忽略 packages 内的 theme/yaklang.json
+/yaklang.json
+# .yaklang 可提交；yak_fast 用 Git LFS 管理（见 .gitattributes）
+a.out
+target
+.scripts
+
+# Local dev files
+opencode-dev
+logs/

@@ -1,0 +1,44 @@
+// SSH 弱口令检测脚本
+// 目标: 192.168.0.8
+
+target = "192.168.0.8"
+port = 22
+
+// 常见用户名
+usernames = ["root", "admin", "test", "user", "guest", "oracle", "mysql"]
+
+// 常见弱密码
+passwords = [
+    "123456", "password", "12345678", "qwerty", "123456789",
+    "root", "admin", "1234567890", "123123", "111111",
+    "test", "guest", "1234567", "12345678901", "123456789012",
+    "password123", "admin123", "root123", "123qwe", "qwe123",
+    "1q2w3e", "1qaz2wsx", "1234qwer", "qwer1234", "P@ssw0rd"
+]
+
+println(sprintf("开始检测 SSH 弱口令: %s:%d", target, port))
+println(sprintf("测试 %d 个用户名 x %d 个密码 = %d 种组合", len(usernames), len(passwords), len(usernames) * len(passwords)))
+
+found = []
+
+// 尝试每个组合
+for _, user = range usernames {
+    for _, pass = range passwords {
+        // 使用 Yak 的 ssh 库进行连接测试
+        result, err = ssh.Auth(target, user, pass, ssh.port(port), ssh.timeout(5))
+        
+        if err == nil && result {
+            println(sprintf("✓ 发现弱口令: %s:%s", user, pass))
+            found = append(found, {"username": user, "password": pass})
+        }
+    }
+}
+
+if len(found) > 0 {
+    println(sprintf("\n=== 检测完成，发现 %d 个弱口令 ===", len(found)))
+    for _, cred = range found {
+        println(sprintf("  - %s:%s", cred.username, cred.password))
+    }
+} else {
+    println("\n=== 检测完成，未发现弱口令 ===")
+}

