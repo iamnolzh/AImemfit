@@ -1,0 +1,14 @@
+GET http://192.168.0.8:3000/login
+JS GET http://192.168.0.8:3000/static/js/admin/logs
+JS GET http://192.168.0.8:3000/static/js/approvals
+JS GET http://192.168.0.8:3000/static/js/auth/login
+JS GET http://192.168.0.8:3000/static/js/auth/register
+JS GET http://192.168.0.8:3000/static/js/auth/reset-password
+JS GET http://192.168.0.8:3000/static/js/auth/reset-password/confirm
+JS GET http://192.168.0.8:3000/static/js/documents
+JS GET http://192.168.0.8:3000/static/js/documents/my
+JS GET http://192.168.0.8:3000/static/js/documents/search
+JS GET http://192.168.0.8:3000/static/js/documents/upload
+JS GET http://192.168.0.8:3000/static/js/profile/avatar
+JS GET http://192.168.0.8:3000/static/js/users
+POST http://192.168.0.8:3000/api/auth/login BODY: {"username":"admin","password":"password"}
