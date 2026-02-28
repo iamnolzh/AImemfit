@@ -23,6 +23,9 @@ jobs:
       version: ${{ steps.get-version.outputs.version }}
       tag: ${{ steps.get-version.outputs.tag }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Get version and tag
         id: get-version
         run: |
@@ -32,6 +35,10 @@ jobs:
             TAG="${{ github.ref_name }}"
           fi
           VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-.*$//')
+          # When pushing to main (not a tag), VERSION is "main" - invalid semver. Use package.json.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            VERSION=$(grep '"version"' packages/yaklang/package.json | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' || echo "0.0.0")
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Building Yaklang (this repo) version: $VERSION tag: $TAG"
