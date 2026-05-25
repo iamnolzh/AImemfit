@@ -97,6 +97,25 @@ export namespace ProviderTransform {
       return result
     }
 
+    // Deepseek requires all assistant messages to have reasoning on them
+    // (ported from official opencode v1.15.10 transform.ts L285-L301)
+    if (model.api.id.toLowerCase().includes("deepseek")) {
+      msgs = msgs.map((msg) => {
+        if (msg.role !== "assistant") return msg
+        if (Array.isArray(msg.content)) {
+          if (msg.content.some((part) => part.type === "reasoning")) return msg
+          return { ...msg, content: [...msg.content, { type: "reasoning", text: "" }] }
+        }
+        return {
+          ...msg,
+          content: [
+            ...(msg.content ? [{ type: "text" as const, text: msg.content }] : []),
+            { type: "reasoning" as const, text: "" },
+          ],
+        }
+      })
+    }
+
     if (
       model.capabilities.interleaved &&
       typeof model.capabilities.interleaved === "object" &&
