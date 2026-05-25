@@ -291,13 +291,34 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+
+      // Check if the assistant message has meaningful content before exiting
+      // Some models return finish="stop" after tool execution without text content
+      // In that case, we should continue the loop (ported from opencode v1.15.10)
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
         lastUser.id < lastAssistant.id
       ) {
-        log.info("exiting loop", { sessionID })
-        break
+        // Find the last assistant's parts to check for content
+        const lastAssistantMsg = msgs.find((m) => m.info.id === lastAssistant!.id)
+        const hasToolParts = lastAssistantMsg?.parts.some((p) => p.type === "tool")
+        const hasTextContent = lastAssistantMsg?.parts.some(
+          (p) => p.type === "text" && p.text && p.text.trim().length > 0,
+        )
+
+        // Only exit if there's actual text content and no pending tool work
+        // If the model just did tool calls without meaningful text, continue the loop
+        if (hasTextContent || !hasToolParts) {
+          log.info("exiting loop", { sessionID })
+          break
+        }
+        log.info("continuing loop despite finish reason", {
+          sessionID,
+          finish: lastAssistant.finish,
+          hasToolParts,
+          hasTextContent,
+        })
       }
 
       step++

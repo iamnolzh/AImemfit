@@ -97,39 +97,57 @@ export namespace ProviderTransform {
       return result
     }
 
-    // Deepseek requires all assistant messages to have reasoning on them
+    // Deepseek requires all assistant messages to have reasoning_content on them
     // (ported from official opencode v1.15.10 transform.ts L285-L301)
-    if (model.api.id.toLowerCase().includes("deepseek")) {
+    const isInterleavedReasoning =
+      model.capabilities.interleaved &&
+      typeof model.capabilities.interleaved === "object" &&
+      model.capabilities.interleaved.field === "reasoning_content"
+
+    if (model.api.id.toLowerCase().includes("deepseek") || isInterleavedReasoning) {
       msgs = msgs.map((msg) => {
         if (msg.role !== "assistant") return msg
+
+        // Extract existing reasoning text if any
+        let reasoningText = ""
+        let contentParts = msg.content
+
         if (Array.isArray(msg.content)) {
-          if (msg.content.some((part) => part.type === "reasoning")) return msg
-          return { ...msg, content: [...msg.content, { type: "reasoning", text: "" }] }
+          const reasoningParts = msg.content.filter((part: any) => part.type === "reasoning")
+          reasoningText = reasoningParts.map((part: any) => part.text).join("")
+          // Remove reasoning parts from content - they go into providerOptions
+          contentParts = msg.content.filter((part: any) => part.type !== "reasoning")
+        } else if (typeof msg.content === "string") {
+          contentParts = msg.content
         }
+
         return {
           ...msg,
-          content: [
-            ...(msg.content ? [{ type: "text" as const, text: msg.content }] : []),
-            { type: "reasoning" as const, text: "" },
-          ],
+          content: contentParts,
+          providerOptions: {
+            ...msg.providerOptions,
+            openaiCompatible: {
+              ...(msg.providerOptions as any)?.openaiCompatible,
+              reasoning_content: reasoningText || "",
+            },
+          },
         }
       })
+
+      return msgs
     }
 
     if (
       model.capabilities.interleaved &&
       typeof model.capabilities.interleaved === "object" &&
-      model.capabilities.interleaved.field === "reasoning_content"
+      model.capabilities.interleaved.field === "reasoning_details"
     ) {
       return msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           const reasoningParts = msg.content.filter((part: any) => part.type === "reasoning")
           const reasoningText = reasoningParts.map((part: any) => part.text).join("")
-
-          // Filter out reasoning parts from content
           const filteredContent = msg.content.filter((part: any) => part.type !== "reasoning")
 
-          // Include reasoning_content directly on the message for all assistant messages
           if (reasoningText) {
             return {
               ...msg,

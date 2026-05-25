@@ -307,6 +307,23 @@ jobs:
           tauriScript: ${{ contains(matrix.os, 'ubuntu') && 'cargo tauri' || '' }}
           args: --target ${{ matrix.target }} --config src-tauri/tauri.prod.conf.json
 
+      - name: Create DMG from .app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP_DIR="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          DMG_DIR="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          mkdir -p "$DMG_DIR"
+          APP_FILE=$(find "$APP_DIR" -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -n "$APP_FILE" ]; then
+            APP_NAME=$(basename "$APP_FILE" .app)
+            VERSION="${{ needs.fetch-version.outputs.version }}"
+            create-dmg --volname "${APP_NAME}" --icon-size 100 --app-drop-link 400 150 --icon "${APP_NAME}.app" 150 150 --window-size 600 400 --no-internet-enable "${DMG_DIR}/${APP_NAME}_${VERSION}_${{ matrix.target }}.dmg" "$APP_FILE"
+          else
+            echo "No .app found in $APP_DIR"
+            ls -la "$APP_DIR" || true
+          fi
+        shell: bash
+
       - name: Upload Desktop artifacts (macOS)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
