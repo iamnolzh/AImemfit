@@ -121,7 +121,7 @@ fn spawn_sidecar(app: &AppHandle, port: u32) -> CommandChild {
     #[cfg(target_os = "windows")]
     let (mut rx, child) = app
         .shell()
-        .sidecar("yaklang-cli")
+        .sidecar("chengfeng-cli")
         .unwrap()
         .env("YAKLANG_EXPERIMENTAL_ICON_DISCOVERY", "true")
         .env("YAKLANG_CLIENT", "desktop")

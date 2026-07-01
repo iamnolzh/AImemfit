@@ -27,7 +27,7 @@
       "allow": [
         {
           "args": true,
-          "name": "yaklang-cli",
+          "name": "chengfeng-cli",
           "sidecar": true
         }
       ]

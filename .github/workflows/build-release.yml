@@ -174,15 +174,15 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             cli-artifact: yaklang-darwin-arm64
-            desktop-name: yaklang-desktop-darwin-arm64
+            desktop-name: chengfeng-desktop-darwin-arm64
           - os: macos-latest
             target: x86_64-apple-darwin
             cli-artifact: yaklang-darwin-x64
-            desktop-name: yaklang-desktop-darwin-x64
+            desktop-name: chengfeng-desktop-darwin-x64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             cli-artifact: yaklang-windows-x64
-            desktop-name: yaklang-desktop-windows-x64
+            desktop-name: chengfeng-desktop-windows-x64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout this repo
@@ -238,10 +238,10 @@ jobs:
         run: |
           cd packages/desktop
           if [ "${{ runner.os }}" == "Windows" ]; then
-            cp ../../cli-binary/yaklang.exe "src-tauri/yaklang-cli-${{ matrix.target }}.exe"
+            cp ../../cli-binary/yaklang.exe "src-tauri/chengfeng-cli-${{ matrix.target }}.exe"
           else
-            cp ../../cli-binary/yaklang "src-tauri/yaklang-cli-${{ matrix.target }}"
-            chmod +x "src-tauri/yaklang-cli-${{ matrix.target }}"
+            cp ../../cli-binary/yaklang "src-tauri/chengfeng-cli-${{ matrix.target }}"
+            chmod +x "src-tauri/chengfeng-cli-${{ matrix.target }}"
           fi
           ls -la src-tauri/
         shell: bash
@@ -268,9 +268,9 @@ jobs:
             "productName": "橙锋",
             "identifier": "ai.yaklang.desktop",
             "version": "0.0.0",
-            "mainBinaryName": "yaklang",
+            "mainBinaryName": "chengfeng",
             "bundle": {
-              "externalBin": ["yaklang-cli"],
+              "externalBin": ["chengfeng-cli"],
               "createUpdaterArtifacts": false,
               "icon": [
                 "icons/prod/32x32.png",
@@ -413,7 +413,7 @@ jobs:
             done
 
             # Handle Desktop artifacts (files in nested directories)
-            if [[ "$dirname" == yaklang-desktop-* ]]; then
+            if [[ "$dirname" == chengfeng-desktop-* ]]; then
               # Find and copy DMG files (macOS)
               find "$dir" -name "*.dmg" -type f | while read -r file; do
                 filename=$(basename "$file")

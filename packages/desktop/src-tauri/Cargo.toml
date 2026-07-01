@@ -1,6 +1,6 @@
 [package]
-# Must match tauri.conf.json mainBinaryName so Cargo produces Yaklang.exe and Tauri finds it (no rename step)
-name = "yaklang"
+# Must match tauri.conf.json mainBinaryName so Cargo produces chengfeng.exe and Tauri finds it (no rename step)
+name = "chengfeng"
 version = "0.0.0"
 description = "橙锋 - AI coding agent"
 authors = ["Anomaly Innovations"]
@@ -12,7 +12,7 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "yaklang_lib"
+name = "chengfeng_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
