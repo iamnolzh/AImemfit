@@ -267,7 +267,7 @@ jobs:
             "$schema": "https://schema.tauri.app/config/2",
             "productName": "橙锋",
             "identifier": "ai.yaklang.desktop",
-            "version": "0.0.0",
+            "version": "${{ needs.fetch-version.outputs.version }}",
             "mainBinaryName": "chengfeng",
             "bundle": {
               "externalBin": ["chengfeng-cli"],
