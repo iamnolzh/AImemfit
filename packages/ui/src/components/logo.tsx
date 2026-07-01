@@ -18,9 +18,9 @@ export const Logo = (props: { class?: string }) => {
     <span
       class={props.class}
       style={{ "font-family": "var(--font-mono, monospace)", "font-weight": 600, "letter-spacing": "-0.02em", color: "var(--icon-strong-base)" }}
-      aria-label="Yaklang"
+      aria-label="橙锋"
     >
-      yaklang
+      橙锋
     </span>
   )
 }

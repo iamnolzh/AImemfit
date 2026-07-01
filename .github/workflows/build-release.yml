@@ -273,7 +273,7 @@ jobs:
           cat > src-tauri/tauri.prod.conf.json << 'EOF'
           {
             "$schema": "https://schema.tauri.app/config/2",
-            "productName": "MemfitAI",
+            "productName": "橙锋",
             "identifier": "ai.yaklang.desktop",
             "version": "0.0.0",
             "mainBinaryName": "yaklang",
@@ -480,9 +480,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.fetch-version.outputs.tag }}
-          name: Yaklang ${{ needs.fetch-version.outputs.tag }}
+          name: 橙锋 ${{ needs.fetch-version.outputs.tag }}
           body: |
-            ## Yaklang Release (this repo)
+            ## 橙锋 Release (this repo)
 
             Built from this repository — CLI, Desktop, and prompts are all from our own code.
 
@@ -523,12 +523,12 @@ jobs:
 
             **Method 1: Remove quarantine attribute (Recommended)**
             ```bash
-            xattr -cr /Applications/Yaklang\ Dev.app
+            xattr -cr /Applications/橙锋.app
             ```
 
             **Method 2: Ad-hoc signing**
             ```bash
-            codesign --force --deep --sign - /Applications/Yaklang\ Dev.app
+            codesign --force --deep --sign - /Applications/橙锋.app
             ```
 
             **Method 3: System Preferences**

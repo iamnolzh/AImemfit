@@ -241,7 +241,7 @@ pub fn run() {
             // Create window immediately with serverReady = false
             let window_builder =
                 WebviewWindow::builder(&app, "main", WebviewUrl::App("/".into()))
-                    .title("Yaklang")
+                    .title("橙锋")
                     .inner_size(size.width as f64, size.height as f64)
                     .decorations(true)
                     .zoom_hotkeys_enabled(true)
@@ -276,7 +276,7 @@ pub fn run() {
                         let res = loop {
                             if timestamp.elapsed() > Duration::from_secs(7) {
                                 break Err(format!(
-                                    "Failed to spawn Yaklang Server. Logs:\n{}",
+                                    "Failed to spawn 橙锋 Server. Logs:\n{}",
                                     get_logs(app.clone()).await.unwrap()
                                 ));
                             }
