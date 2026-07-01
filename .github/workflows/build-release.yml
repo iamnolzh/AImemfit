@@ -421,18 +421,21 @@ jobs:
                 cp "$file" "release/$filename"
               done
 
-              # Find and copy MSI files (Windows)
+              # Find and copy MSI files (Windows) - rename Chinese to English
               find "$dir" -name "*.msi" -type f | while read -r file; do
                 filename=$(basename "$file")
-                echo "Copying MSI: $filename"
-                cp "$file" "release/$filename"
+                english_name=$(echo "$filename" | sed 's/橙锋/ChengFeng/g')
+                echo "Copying MSI: $filename -> $english_name"
+                cp "$file" "release/$english_name"
               done
 
-              # Find and copy NSIS exe files (Windows installer)
+              # Find and copy NSIS exe files (Windows installer) - rename Chinese to English
               find "$dir" -path "*/nsis/*.exe" -type f | while read -r file; do
                 filename=$(basename "$file")
-                echo "Copying NSIS EXE: $filename"
-                cp "$file" "release/$filename"
+                # Replace Chinese product name with English
+                english_name=$(echo "$filename" | sed 's/橙锋/ChengFeng/g')
+                echo "Copying NSIS EXE: $filename -> $english_name"
+                cp "$file" "release/$english_name"
               done
 
               # Find and copy AppImage files (Linux)
