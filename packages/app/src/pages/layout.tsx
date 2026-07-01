@@ -137,7 +137,7 @@ export default function Layout(props: ParentProps) {
           persistent: true,
           icon: "download",
           title: "有新版本",
-          description: `Yaklang 新版本 (${version}) 可安装。`,
+          description: `橙锋 新版本 (${version}) 可安装。`,
           actions: [
             {
               label: "立即安装并重启",
@@ -923,7 +923,7 @@ export default function Layout(props: ParentProps) {
               }}
             >
               <A href="/" class="shrink-0 h-8 flex items-center justify-start px-2 w-full" data-tauri-drag-region>
-                <img src="/yaklogo.png" alt="Yaklang" class="h-8 w-auto shrink-0" />
+                <img src="/yaklogo.png" alt="橙锋" class="h-8 w-auto shrink-0" />
               </A>
             </div>
           </Show>
@@ -999,7 +999,7 @@ export default function Layout(props: ParentProps) {
               <div class="rounded-md bg-background-stronger shadow-xs-border-base">
                 {/* <div class="p-3 flex flex-col gap-2">
                   <div class="text-12-medium text-text-strong">入门</div>
-                  <div class="text-text-base">Yaklang 内置免费模型，可立即开始使用。</div>
+                  <div class="text-text-base">橙锋 内置免费模型，可立即开始使用。</div>
                   <div class="text-text-base">连接任意提供商即可使用 Claude、GPT、Gemini 等模型。</div>
                 </div> */}
                 <Tooltip placement="right" value="连接模型提供商" inactive={expanded()}>
@@ -1152,7 +1152,7 @@ export default function Layout(props: ParentProps) {
                 class="shrink-0 h-8 flex items-center justify-start px-2 w-full"
                 onClick={() => layout.mobileSidebar.hide()}
               >
-                <img src="/yaklogo.png" alt="Yaklang" class="h-8 w-auto shrink-0" />
+                <img src="/yaklogo.png" alt="橙锋" class="h-8 w-auto shrink-0" />
               </A>
             </div>
             <SidebarContent mobile />

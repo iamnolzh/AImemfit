@@ -53,7 +53,7 @@ export default function Home() {
 
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
-      <img src="/yaklogo.png" alt="Yaklang" class="md:w-xl w-24 h-auto opacity-90" />
+      <img src="/yaklogo.png" alt="橙锋" class="md:w-xl w-24 h-auto opacity-90" />
       <Button
         size="large"
         variant="ghost"

@@ -307,9 +307,10 @@ jobs:
           mkdir -p "$DMG_DIR"
           APP_FILE=$(find "$APP_DIR" -maxdepth 1 -name "*.app" -type d | head -1)
           if [ -n "$APP_FILE" ]; then
-            APP_NAME=$(basename "$APP_FILE" .app)
+            APP_BASENAME=$(basename "$APP_FILE" .app)
             VERSION="${{ needs.fetch-version.outputs.version }}"
-            create-dmg --volname "${APP_NAME}" --icon-size 100 --app-drop-link 400 150 --icon "${APP_NAME}.app" 150 150 --window-size 600 400 --no-internet-enable "${DMG_DIR}/${APP_NAME}_${VERSION}_${{ matrix.target }}.dmg" "$APP_FILE"
+            DMG_NAME="ChengFeng_${VERSION}_${{ matrix.target }}.dmg"
+            create-dmg --volname "橙锋" --icon-size 100 --app-drop-link 400 150 --icon "${APP_BASENAME}.app" 150 150 --window-size 600 400 --no-internet-enable "${DMG_DIR}/${DMG_NAME}" "$APP_FILE"
           else
             echo "No .app found in $APP_DIR"
             ls -la "$APP_DIR" || true
