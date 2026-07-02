@@ -53,22 +53,23 @@ export default function Home() {
 
   return (
     <div class="mx-auto mt-55 w-full md:w-auto px-4">
-      <div class="relative mx-auto md:w-48 w-20" style={{ "margin-bottom": "16px" }}>
+      <div class="relative mx-auto md:w-80 w-40" style={{ "margin-bottom": "24px" }}>
         <div
-          class="absolute inset-0 rounded-full blur-3xl opacity-20"
+          class="absolute inset-0 rounded-full"
           style={{
-            background: "radial-gradient(circle, rgba(200, 30, 30, 0.6) 0%, rgba(200, 30, 30, 0.15) 50%, transparent 70%)",
-            transform: "scale(1.5)",
+            background: "radial-gradient(circle, rgba(200, 30, 30, 0.35) 0%, rgba(200, 30, 30, 0.12) 40%, rgba(200, 30, 30, 0.04) 60%, transparent 75%)",
+            transform: "scale(2.0)",
+            filter: "blur(40px)",
           }}
         />
         <img
           src="/yaklogo.png"
           alt="橙锋"
-          class="relative w-full h-auto drop-shadow-lg"
-          style={{ filter: "drop-shadow(0 0 20px rgba(200, 30, 30, 0.15))" }}
+          class="relative w-full h-auto"
+          style={{ filter: "drop-shadow(0 4px 30px rgba(200, 30, 30, 0.25))" }}
         />
       </div>
-      <div class="text-center text-text-weak text-14-medium tracking-widest opacity-60" style={{ "letter-spacing": "0.25em" }}>
+      <div class="text-center text-text-weak opacity-50" style={{ "font-size": "18px", "letter-spacing": "0.35em", "font-weight": "300" }}>
         橙 锋
       </div>
       <Button

@@ -922,8 +922,11 @@ export default function Layout(props: ParentProps) {
                 "justify-start": expanded(),
               }}
             >
-              <A href="/" class="shrink-0 h-8 flex items-center justify-start px-2 w-full" data-tauri-drag-region>
-                <img src="/yaklogo.png" alt="橙锋" class="h-8 w-auto shrink-0" />
+              <A href="/" class="shrink-0 h-10 flex items-center gap-2 justify-start px-1.5 w-full" data-tauri-drag-region>
+                <img src="/yaklogo.png" alt="橙锋" class="shrink-0" style={{ width: "28px", height: "28px" }} />
+                <Show when={expanded()}>
+                  <span class="text-14-medium text-text-strong whitespace-nowrap">橙锋</span>
+                </Show>
               </A>
             </div>
           </Show>
@@ -1149,10 +1152,11 @@ export default function Layout(props: ParentProps) {
             <div class="border-b border-border-weak-base w-full h-12 ml-px flex items-center pl-1.75 shrink-0">
               <A
                 href="/"
-                class="shrink-0 h-8 flex items-center justify-start px-2 w-full"
+                class="shrink-0 h-10 flex items-center gap-2 justify-start px-1.5 w-full"
                 onClick={() => layout.mobileSidebar.hide()}
               >
-                <img src="/yaklogo.png" alt="橙锋" class="h-8 w-auto shrink-0" />
+                <img src="/yaklogo.png" alt="橙锋" class="shrink-0" style={{ width: "28px", height: "28px" }} />
+                <span class="text-14-medium text-text-strong">橙锋</span>
               </A>
             </div>
             <SidebarContent mobile />
