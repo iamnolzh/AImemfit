@@ -61,6 +61,8 @@ interface PromptInputProps {
   ref?: (el: HTMLDivElement) => void
   newSessionWorktree?: string
   onNewSessionWorktreeReset?: () => void
+  autoSubmit?: boolean
+  onAutoSubmit?: () => void
 }
 
 const PLACEHOLDERS = [
@@ -115,6 +117,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   const providers = useProviders()
   const command = useCommand()
   const permission = usePermission()
+  const [autoSubmitted, setAutoSubmitted] = createSignal(false)
   let editorRef!: HTMLDivElement
   let fileInputRef!: HTMLInputElement
   let scrollRef!: HTMLDivElement
@@ -941,12 +944,12 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       return
     }
 
-    if (event.key === "Enter" && event.shiftKey) {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey || event.shiftKey)) {
       addPart({ type: "text", content: "\n", start: 0, end: 0 })
       event.preventDefault()
       return
     }
-    if (event.key === "Enter" && !event.shiftKey) {
+    if (event.key === "Enter") {
       handleSubmit(event)
     }
     if (event.key === "Escape") {
@@ -1290,6 +1293,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
         restoreInput()
       })
   }
+
+  createEffect(() => {
+    if (!props.autoSubmit) return
+    if (autoSubmitted()) return
+    if (!prompt.ready()) return
+    if (!local.model.current() || !local.agent.current()) return
+
+    const text = prompt
+      .current()
+      .map((part) => ("content" in part ? part.content : ""))
+      .join("")
+      .trim()
+    if (!text && imageAttachments().length === 0) return
+
+    setAutoSubmitted(true)
+    props.onAutoSubmit?.()
+    queueMicrotask(() => void handleSubmit({ preventDefault() {} } as Event))
+  })
 
   return (
     <div class="relative size-full _max-h-[320px] flex flex-col gap-3">

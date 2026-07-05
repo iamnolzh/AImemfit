@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Yaklang",
+  "productName": "橙锋",
   "identifier": "ai.yaklang.desktop.dev",
   "mainBinaryName": "yaklang",
   "version": "../package.json",

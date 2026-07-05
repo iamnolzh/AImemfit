@@ -54,7 +54,7 @@ type State = {
   lsp: LspStatus[]
   vcs: VcsInfo | undefined
   limit: number
-  skill: Array<{ name: string; description: string; location: string }>
+  skill: Array<{ name: string; description: string; location: string; editable?: boolean }>
   message: {
     [sessionID: string]: Message[]
   }
@@ -136,6 +136,17 @@ function createGlobalSync() {
       })
   }
 
+  async function loadSkills(directory: string) {
+    const [, setStore] = child(directory)
+    const sdk = createOpencodeClient({
+      baseUrl: globalSDK.url,
+      directory,
+      throwOnError: true,
+    })
+    const skills = await sdk.app.skills().then((x) => x.data ?? [])
+    setStore("skill", reconcile(skills, { key: "name" }))
+  }
+
   async function bootstrapInstance(directory: string) {
     if (!directory) return
     const [store, setStore] = child(directory)
@@ -170,7 +181,7 @@ function createGlobalSync() {
         Promise.all([
           sdk.path.get().then((x) => setStore("path", x.data!)),
           sdk.command.list().then((x) => setStore("command", x.data ?? [])),
-          sdk.app.skills().then((x) => setStore("skill", x.data ?? [])),
+          loadSkills(directory),
           sdk.session.status().then((x) => setStore("session_status", x.data!)),
           loadSessions(directory),
           sdk.mcp.status().then((x) => setStore("mcp", x.data!)),
@@ -478,6 +489,9 @@ function createGlobalSync() {
     bootstrap,
     project: {
       loadSessions,
+    },
+    skill: {
+      load: loadSkills,
     },
   }
 }

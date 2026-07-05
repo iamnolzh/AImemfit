@@ -1,4 +1,4 @@
-import { For, onCleanup, Show, Match, Switch, createMemo, createEffect, on } from "solid-js"
+import { For, onCleanup, Show, Match, Switch, createMemo, createEffect, createSignal, on } from "solid-js"
 import { createMediaQuery } from "@solid-primitives/media"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { Dynamic } from "solid-js/web"
@@ -31,7 +31,7 @@ import { DialogSelectFile } from "@/components/dialog-select-file"
 import { DialogSelectModel } from "@/components/dialog-select-model"
 import { DialogSelectMcp } from "@/components/dialog-select-mcp"
 import { useCommand } from "@/context/command"
-import { useNavigate, useParams } from "@solidjs/router"
+import { useNavigate, useParams, useSearchParams } from "@solidjs/router"
 import { UserMessage } from "@opencode-ai/sdk/v2"
 import type { FileDiff } from "@opencode-ai/sdk/v2/client"
 import { useSDK } from "@/context/sdk"
@@ -154,10 +154,13 @@ export default function Page() {
   const command = useCommand()
   const platform = usePlatform()
   const params = useParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const sdk = useSDK()
   const prompt = usePrompt()
   const permission = usePermission()
+  const [appliedInitialSettings, setAppliedInitialSettings] = createSignal(false)
+  const [autoSubmitPrompt, setAutoSubmitPrompt] = createSignal(searchParams.autosend === "1")
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const tabs = createMemo(() => layout.tabs(sessionKey()))
   const view = createMemo(() => layout.view(sessionKey()))
@@ -243,6 +246,27 @@ export default function Page() {
       },
     ),
   )
+
+  createEffect(() => {
+    if (appliedInitialSettings()) return
+    const agent = typeof searchParams.agent === "string" ? searchParams.agent : undefined
+    const providerID = typeof searchParams.provider === "string" ? searchParams.provider : undefined
+    const modelID = typeof searchParams.model === "string" ? searchParams.model : undefined
+    const variant = typeof searchParams.variant === "string" ? searchParams.variant : undefined
+    const autosend = typeof searchParams.autosend === "string" ? searchParams.autosend : undefined
+
+    if (agent) local.agent.set(agent)
+    if (providerID && modelID) local.model.set({ providerID, modelID }, { recent: true })
+    if (variant !== undefined) local.model.variant.set(variant || undefined)
+
+    if (agent || providerID || modelID || variant !== undefined || autosend !== undefined) {
+      setSearchParams(
+        { agent: undefined, provider: undefined, model: undefined, variant: undefined, autosend: undefined },
+        { replace: true },
+      )
+    }
+    setAppliedInitialSettings(true)
+  })
 
   const [store, setStore] = createStore({
     activeDraggable: undefined as string | undefined,
@@ -950,6 +974,8 @@ export default function Page() {
                 }}
                 newSessionWorktree={newSessionWorktree()}
                 onNewSessionWorktreeReset={() => setStore("newSessionWorktree", "main")}
+                autoSubmit={autoSubmitPrompt()}
+                onAutoSubmit={() => setAutoSubmitPrompt(false)}
               />
             </div>
           </div>
