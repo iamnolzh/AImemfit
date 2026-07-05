@@ -13,7 +13,7 @@ import {
   type JSX,
 } from "solid-js"
 import { DateTime } from "luxon"
-import { A, useNavigate, useParams } from "@solidjs/router"
+import { A, useLocation, useNavigate, useParams } from "@solidjs/router"
 import { useLayout, getAvatarColors, LocalProject } from "@/context/layout"
 import { useGlobalSync } from "@/context/global-sync"
 import { base64Decode, base64Encode } from "@opencode-ai/util/encode"
@@ -78,6 +78,7 @@ export default function Layout(props: ParentProps) {
   onCleanup(() => xlQuery.removeEventListener("change", handleViewportChange))
 
   const params = useParams()
+  const location = useLocation()
   const globalSDK = useGlobalSDK()
   const globalSync = useGlobalSync()
   const layout = useLayout()
@@ -563,6 +564,26 @@ export default function Layout(props: ParentProps) {
     setStore("activeDraggable", undefined)
   }
 
+  function projectDisplayName(project: LocalProject) {
+    const customName = project.name?.trim()
+    if (customName) return customName
+
+    const folderName = getFilename(project.worktree)
+    if (folderName) return folderName
+
+    const lastSegment = project.worktree.split("/").filter(Boolean).at(-1)
+    return lastSegment || "根目录"
+  }
+
+  function projectUsesDefaultVisual(project: LocalProject) {
+    return !project.icon?.url && !project.name?.trim()
+  }
+
+  const sidebarButtonClass =
+    "hover:bg-background-stronger active:bg-background-stronger data-[selected]:bg-background-stronger"
+  const sidebarProjectHeaderClass =
+    "bg-background-stronger/70 hover:bg-background-stronger data-[active=true]:bg-background-stronger"
+
   const ProjectAvatar = (props: {
     project: LocalProject
     class?: string
@@ -572,21 +593,37 @@ export default function Layout(props: ParentProps) {
     const notification = useNotification()
     const notifications = createMemo(() => notification.project.unseen(props.project.worktree))
     const hasError = createMemo(() => notifications().some((n) => n.type === "error"))
-    const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
+    const name = createMemo(() => projectDisplayName(props.project))
     const mask = "radial-gradient(circle 5px at calc(100% - 2px) 2px, transparent 5px, black 5.5px)"
     const opencode = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
     return (
-      <div class="relative size-5 shrink-0 rounded-sm">
-        <Avatar
-          fallback={name()}
-          src={props.project.id === opencode ? "https://opencode.ai/favicon.svg" : props.project.icon?.url}
-          {...getAvatarColors(props.project.icon?.color)}
-          class={`size-full ${props.class ?? ""}`}
-          style={
-            notifications().length > 0 && props.notify ? { "-webkit-mask-image": mask, "mask-image": mask } : undefined
+      <div class="relative size-5 shrink-0 rounded-md">
+        <Show
+          when={!projectUsesDefaultVisual(props.project)}
+          fallback={
+            <div
+              class={`flex size-full items-center justify-center rounded-md bg-background-stronger text-text-base shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] ${props.class ?? ""}`}
+              style={
+                notifications().length > 0 && props.notify
+                  ? { "-webkit-mask-image": mask, "mask-image": mask }
+                  : undefined
+              }
+            >
+              <Icon name="folder" size="small" />
+            </div>
           }
-        />
+        >
+          <Avatar
+            fallback={name()}
+            src={props.project.id === opencode ? "https://opencode.ai/favicon.svg" : props.project.icon?.url}
+            {...getAvatarColors(props.project.icon?.color)}
+            class={`size-full rounded-md shadow-[inset_0_0_0_1px_rgba(0,0,0,0.08)] ${props.class ?? ""}`}
+            style={
+              notifications().length > 0 && props.notify ? { "-webkit-mask-image": mask, "mask-image": mask } : undefined
+            }
+          />
+        </Show>
         <Show when={props.expandable}>
           <Icon
             name="chevron-right"
@@ -608,7 +645,7 @@ export default function Layout(props: ParentProps) {
   }
 
   const ProjectVisual = (props: { project: LocalProject; class?: string }): JSX.Element => {
-    const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
+    const name = createMemo(() => projectDisplayName(props.project))
     const current = createMemo(() => base64Decode(params.dir ?? ""))
     return (
       <Switch>
@@ -617,7 +654,7 @@ export default function Layout(props: ParentProps) {
             as={"div"}
             variant="ghost"
             data-active
-            class="flex items-center justify-between gap-3 w-full px-1 self-stretch h-8 border-none rounded-lg"
+            class={`flex items-center justify-between gap-3 w-full px-2 self-stretch h-9 border-none rounded-lg ${sidebarProjectHeaderClass}`}
           >
             <div class="flex items-center gap-3 p-0 text-left min-w-0 grow">
               <ProjectAvatar project={props.project} />
@@ -629,7 +666,7 @@ export default function Layout(props: ParentProps) {
           <Button
             variant="ghost"
             size="large"
-            class="flex items-center justify-center p-0 aspect-square border-none rounded-lg"
+            class={`flex items-center justify-center p-0 aspect-square border-none rounded-lg ${sidebarButtonClass}`}
             data-selected={props.project.worktree === current()}
             onClick={() => navigateToProject(props.project.worktree)}
           >
@@ -672,7 +709,7 @@ export default function Layout(props: ParentProps) {
         <div
           data-session-id={props.session.id}
           class="group/session relative w-full rounded-md cursor-default transition-colors
-                 hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover"
+                 hover:bg-background-stronger focus-within:bg-background-stronger has-[.active]:bg-background-stronger"
         >
           <Tooltip placement={props.mobile ? "bottom" : "right"} value={props.session.title} gutter={10}>
             <A
@@ -746,7 +783,7 @@ export default function Layout(props: ParentProps) {
     const sortable = createSortable(props.project.worktree)
     const showExpanded = createMemo(() => props.mobile || layout.sidebar.opened())
     const defaultWorktree = createMemo(() => base64Encode(props.project.worktree))
-    const name = createMemo(() => props.project.name || getFilename(props.project.worktree))
+    const name = createMemo(() => projectDisplayName(props.project))
     const [store, setProjectStore] = globalSync.child(props.project.worktree)
     const stores = createMemo(() =>
       [props.project.worktree, ...(props.project.sandboxes ?? [])].map((dir) => globalSync.child(dir)[0]),
@@ -788,8 +825,8 @@ export default function Layout(props: ParentProps) {
                 as={"div"}
                 variant="ghost"
                 classList={{
-                  "group/session flex items-center justify-between gap-3 w-full px-1.5 self-stretch h-auto border-none rounded-lg": true,
-                  "bg-surface-raised-base-hover": isActive() && !isExpanded(),
+                  [`group/session flex items-center justify-between gap-3 w-full px-2 py-1 self-stretch h-auto border-none rounded-lg text-text-strong ${sidebarProjectHeaderClass}`]: true,
+                  "bg-background-stronger shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)]": isActive(),
                 }}
               >
                 <Collapsible.Trigger class="group/trigger flex items-center gap-3 p-0 text-left min-w-0 grow border-none">
@@ -835,26 +872,8 @@ export default function Layout(props: ParentProps) {
                     )}
                   </For>
                   <Show when={rootSessions().length === 0}>
-                    <div
-                      class="group/session relative w-full pl-4 pr-2 py-1 rounded-md cursor-default transition-colors
-                             hover:bg-surface-raised-base-hover focus-within:bg-surface-raised-base-hover has-[.active]:bg-surface-raised-base-hover"
-                    >
-                      <div class="flex items-center self-stretch w-full">
-                        <div class="flex-1 min-w-0">
-                          <Tooltip placement={props.mobile ? "bottom" : "right"} value="新会话">
-                            <A
-                              href={`${defaultWorktree()}/session`}
-                              class="flex flex-col gap-1 min-w-0 text-left w-full focus:outline-none"
-                            >
-                              <div class="flex items-center self-stretch gap-6 justify-between">
-                                <span class="text-14-regular text-text-strong overflow-hidden text-ellipsis truncate">
-                                  新会话
-                                </span>
-                              </div>
-                            </A>
-                          </Tooltip>
-                        </div>
-                      </div>
+                    <div class="w-full rounded-md px-4 py-1.5 text-12-regular text-text-weak">
+                      暂无对话
                     </div>
                   </Show>
                   <Show when={hasMoreSessions()}>
@@ -867,20 +886,6 @@ export default function Layout(props: ParentProps) {
                       >
                         加载更多
                       </Button>
-                    </div>
-                  </Show>
-                  <Show when={store.skill.length > 0}>
-                    <div class="pl-4 pr-2 py-2 mt-1 border-t border-border-weak">
-                      <div class="text-11-medium text-text-weak uppercase tracking-wide mb-1.5">技能</div>
-                      <div class="flex flex-wrap gap-1">
-                        <For each={store.skill}>
-                          {(s) => (
-                            <span class="text-12-regular text-text-muted bg-surface-raised-base px-1.5 py-0.5 rounded">
-                              {s.name}
-                            </span>
-                          )}
-                        </For>
-                      </div>
                     </div>
                   </Show>
                 </nav>
@@ -912,61 +917,97 @@ export default function Layout(props: ParentProps) {
 
   const SidebarContent = (sidebarProps: { mobile?: boolean }) => {
     const expanded = () => sidebarProps.mobile || layout.sidebar.opened()
+    const isSkillsActive = createMemo(() => location.pathname === "/skills")
     return (
       <div class="flex flex-col self-stretch h-full items-center justify-between overflow-hidden min-h-0">
         <div class="flex flex-col items-start self-stretch gap-4 min-h-0">
           <Show when={!sidebarProps.mobile}>
             <div
-              classList={{
-                "border-b border-border-weak-base w-full h-12 ml-px flex items-center pl-1.75 shrink-0": true,
-                "justify-start": expanded(),
-              }}
+              class="border-b border-border-weak-base w-full min-h-13 px-2 pt-2 pb-2 shrink-0"
+              data-tauri-drag-region
             >
-              <A href="/" class="shrink-0 h-8 flex items-center justify-start px-2 w-full" data-tauri-drag-region>
-                <img src="/yaklogo.png" alt="Yaklang" class="h-8 w-auto shrink-0" />
-              </A>
+              <div class="flex w-full items-center gap-1" data-tauri-drag-region>
+                <TooltipKeybind
+                  class="shrink-0"
+                  placement="right"
+                  title="展开/收起侧栏"
+                  keybind={command.keybind("sidebar.toggle")}
+                  inactive={expanded()}
+                >
+                  <Button
+                    variant="ghost"
+                    size="normal"
+                    class={`group/sidebar-toggle flex size-8 shrink-0 items-center justify-center rounded-lg p-0 text-text-base ${sidebarButtonClass}`}
+                    onClick={layout.sidebar.toggle}
+                  >
+                    <span class="relative flex size-4 items-center justify-center">
+                      <Icon
+                        name={layout.sidebar.opened() ? "layout-left" : "layout-right"}
+                        size="small"
+                        class="absolute left-1/2 top-1/2 opacity-100 transition-opacity -translate-x-1/2 -translate-y-1/2 group-hover/sidebar-toggle:opacity-0 group-active/sidebar-toggle:opacity-0"
+                      />
+                      <Icon
+                        name={layout.sidebar.opened() ? "layout-left-partial" : "layout-right-partial"}
+                        size="small"
+                        class="absolute left-1/2 top-1/2 opacity-0 transition-opacity -translate-x-1/2 -translate-y-1/2 group-hover/sidebar-toggle:opacity-100 group-active/sidebar-toggle:opacity-0"
+                      />
+                      <Icon
+                        name={layout.sidebar.opened() ? "layout-left-full" : "layout-right-full"}
+                        size="small"
+                        class="absolute left-1/2 top-1/2 opacity-0 transition-opacity -translate-x-1/2 -translate-y-1/2 group-active/sidebar-toggle:opacity-100"
+                      />
+                    </span>
+                  </Button>
+                </TooltipKeybind>
+
+                <TooltipKeybind placement="bottom" title="新对话" keybind={command.keybind("session.new")}>
+                  <Button
+                    as={A}
+                    href="/"
+                    variant="ghost"
+                    size="normal"
+                    class={`flex h-8 min-w-0 items-center justify-start gap-2 rounded-lg px-2 text-text-strong ${sidebarButtonClass}`}
+                    onClick={() => layout.mobileSidebar.hide()}
+                  >
+                    <Icon name="edit-small-2" size="small" />
+                    <Show when={expanded()}>
+                      <span class="truncate text-13-medium">新对话</span>
+                    </Show>
+                  </Button>
+                </TooltipKeybind>
+
+                <Show when={expanded()}>
+                  <div class="ml-auto flex items-center gap-1">
+                    <Tooltip placement="bottom" value="搜索">
+                      <Button
+                        variant="ghost"
+                        size="normal"
+                        class={`size-8 rounded-lg p-0 text-text-base ${sidebarButtonClass}`}
+                        onClick={() => showToast({ title: "搜索功能准备中", description: "历史会话搜索将在后续版本开放。" })}
+                      >
+                        <Icon name="bubble-5" size="small" />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip placement="bottom" value="技能">
+                      <Button
+                        as={A}
+                        href="/skills"
+                        variant="ghost"
+                        size="normal"
+                        classList={{
+                          [`size-8 rounded-lg p-0 text-text-base ${sidebarButtonClass}`]: true,
+                          "bg-background-stronger text-text-strong shadow-sm": isSkillsActive(),
+                        }}
+                      >
+                        <Icon name="brain" size="small" />
+                      </Button>
+                    </Tooltip>
+                  </div>
+                </Show>
+              </div>
             </div>
           </Show>
           <div class="flex flex-col items-start self-stretch gap-4 px-2 overflow-hidden min-h-0">
-            <Show when={!sidebarProps.mobile}>
-              <TooltipKeybind
-                class="shrink-0"
-                placement="right"
-                title="展开/收起侧栏"
-                keybind={command.keybind("sidebar.toggle")}
-                inactive={expanded()}
-              >
-                <Button
-                  variant="ghost"
-                  size="large"
-                  class="group/sidebar-toggle shrink-0 w-full text-left justify-start rounded-lg px-2"
-                  onClick={layout.sidebar.toggle}
-                >
-                  <div class="relative -ml-px flex items-center justify-center size-4 [&>*]:absolute [&>*]:inset-0">
-                    <Icon
-                      name={layout.sidebar.opened() ? "layout-left" : "layout-right"}
-                      size="small"
-                      class="group-hover/sidebar-toggle:hidden"
-                    />
-                    <Icon
-                      name={layout.sidebar.opened() ? "layout-left-partial" : "layout-right-partial"}
-                      size="small"
-                      class="hidden group-hover/sidebar-toggle:inline-block"
-                    />
-                    <Icon
-                      name={layout.sidebar.opened() ? "layout-left-full" : "layout-right-full"}
-                      size="small"
-                      class="hidden group-active/sidebar-toggle:inline-block"
-                    />
-                  </div>
-                  <Show when={layout.sidebar.opened()}>
-                    <div class="hidden group-hover/sidebar-toggle:block group-active/sidebar-toggle:block text-text-base">
-                      展开/收起侧栏
-                    </div>
-                  </Show>
-                </Button>
-              </TooltipKeybind>
-            </Show>
             <DragDropProvider
               onDragStart={handleDragStart}
               onDragEnd={handleDragEnd}
@@ -981,6 +1022,9 @@ export default function Layout(props: ParentProps) {
                 }}
                 class="w-full min-w-8 flex flex-col gap-2 min-h-0 overflow-y-auto no-scrollbar"
               >
+                <Show when={expanded()}>
+                  <div class="px-2 pt-1 text-12-medium text-text-weak">项目</div>
+                </Show>
                 <SortableProvider ids={layout.projects.list().map((p) => p.worktree)}>
                   <For each={layout.projects.list()}>
                     {(project) => <SortableProject project={project} mobile={sidebarProps.mobile} />}
@@ -1017,7 +1061,7 @@ export default function Layout(props: ParentProps) {
             <Match when={providers.all().length > 0}>
               <Tooltip placement="right" value="连接模型提供商" inactive={expanded()}>
                 <Button
-                  class="flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2"
+                  class={`flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2 ${sidebarButtonClass}`}
                   variant="ghost"
                   size="large"
                   icon="plus"
@@ -1041,7 +1085,7 @@ export default function Layout(props: ParentProps) {
             inactive={expanded()}
           >
             <Button
-              class="flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2"
+              class={`flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2 ${sidebarButtonClass}`}
               variant="ghost"
               size="large"
               icon="folder-add-left"
@@ -1060,7 +1104,7 @@ export default function Layout(props: ParentProps) {
             inactive={expanded()}
           >
             <Button
-              class="flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2"
+              class={`flex w-full text-left justify-start text-text-base stroke-[1.5px] rounded-lg px-2 ${sidebarButtonClass}`}
               variant="ghost"
               size="large"
               icon={theme.mode() === "dark" ? "sun" : "moon"}
@@ -1108,7 +1152,8 @@ export default function Layout(props: ParentProps) {
         >
           <div
             classList={{
-              "@container w-full h-full pb-5 bg-background-base": true,
+              "@container w-full h-full pb-5": true,
+              "bg-background-base": true,
               "flex flex-col gap-5.5 items-start self-stretch justify-between": true,
               "border-r border-border-weak-base contain-strict": true,
             }}
@@ -1140,20 +1185,47 @@ export default function Layout(props: ParentProps) {
           />
           <div
             classList={{
-              "@container fixed inset-y-0 left-0 z-50 w-72 bg-background-base border-r border-border-weak-base flex flex-col gap-5.5 items-start self-stretch justify-between pb-5 transition-transform duration-200 ease-out": true,
+              "@container fixed inset-y-0 left-0 z-50 w-72 border-r border-border-weak-base flex flex-col gap-5.5 items-start self-stretch justify-between pb-5 transition-transform duration-200 ease-out": true,
+              "bg-background-base": true,
               "translate-x-0": layout.mobileSidebar.opened(),
               "-translate-x-full": !layout.mobileSidebar.opened(),
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div class="border-b border-border-weak-base w-full h-12 ml-px flex items-center pl-1.75 shrink-0">
-              <A
-                href="/"
-                class="shrink-0 h-8 flex items-center justify-start px-2 w-full"
-                onClick={() => layout.mobileSidebar.hide()}
-              >
-                <img src="/yaklogo.png" alt="Yaklang" class="h-8 w-auto shrink-0" />
-              </A>
+            <div
+              class="border-b border-border-weak-base w-full min-h-13 px-2 pt-2 pb-2 shrink-0"
+            >
+              <div class="flex w-full items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="normal"
+                  class="size-8 shrink-0 rounded-lg p-0 text-text-base"
+                  onClick={() => layout.mobileSidebar.hide()}
+                >
+                  <Icon name="layout-left" size="small" />
+                </Button>
+                <Button
+                  as={A}
+                  href="/"
+                  variant="ghost"
+                  size="normal"
+                  class="flex h-8 min-w-0 items-center justify-start gap-2 rounded-lg px-2 text-text-strong"
+                  onClick={() => layout.mobileSidebar.hide()}
+                >
+                  <Icon name="edit-small-2" size="small" />
+                  <span class="truncate text-13-medium">新对话</span>
+                </Button>
+                <Button
+                  as={A}
+                  href="/skills"
+                  variant="ghost"
+                  size="normal"
+                  class="ml-auto size-8 rounded-lg p-0 text-text-base"
+                  onClick={() => layout.mobileSidebar.hide()}
+                >
+                  <Icon name="brain" size="small" />
+                </Button>
+              </div>
             </div>
             <SidebarContent mobile />
           </div>

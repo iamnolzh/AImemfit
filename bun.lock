@@ -372,7 +372,7 @@
     },
     "packages/yaklang": {
       "name": "yaklang",
-      "version": "1.1.4",
+      "version": "1.2.2",
       "bin": {
         "yaklang": "./bin/yaklang",
       },

@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { batch, createMemo } from "solid-js"
-import { useParams } from "@solidjs/router"
+import { useParams, useSearchParams } from "@solidjs/router"
 import type { FileSelection } from "@/context/file"
 import { Persist, persisted } from "@/utils/persist"
 
@@ -103,6 +103,7 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
   name: "Prompt",
   init: () => {
     const params = useParams()
+    const [searchParams, setSearchParams] = useSearchParams()
     const legacy = createMemo(() => `${params.dir}/prompt${params.id ? "/" + params.id : ""}.v2`)
 
     const [store, setStore, _, ready] = persisted(
@@ -123,6 +124,13 @@ export const { use: usePrompt, provider: PromptProvider } = createSimpleContext(
         },
       }),
     )
+
+    const initialPrompt = typeof searchParams.prompt === "string" ? searchParams.prompt.trim() : ""
+    if (initialPrompt && isPromptEqual(store.prompt, DEFAULT_PROMPT)) {
+      setStore("prompt", [{ type: "text", content: initialPrompt, start: 0, end: initialPrompt.length }])
+      setStore("cursor", initialPrompt.length)
+      setSearchParams({ prompt: undefined }, { replace: true })
+    }
 
     function keyForItem(item: ContextItem) {
       if (item.type !== "file") return item.type
