@@ -3980,10 +3980,107 @@ export type AppSkillsResponses = {
     name: string
     description: string
     location: string
+    editable?: boolean
   }>
 }
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
+
+export type SkillDetail = {
+  name: string
+  description: string
+  location: string
+  editable?: boolean
+  content: string
+}
+
+export type SkillUpsertInput = {
+  name: string
+  description: string
+  content?: string
+}
+
+export type AppSkillGetData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/skill/{name}"
+}
+
+export type AppSkillGetErrors = {
+  404: unknown
+}
+
+export type AppSkillGetResponses = {
+  200: SkillDetail
+}
+
+export type AppSkillGetResponse = AppSkillGetResponses[keyof AppSkillGetResponses]
+
+export type AppSkillCreateData = {
+  body: SkillUpsertInput
+  path?: never
+  query?: {
+    directory?: string
+  }
+  url: "/skill"
+}
+
+export type AppSkillCreateErrors = {
+  400: unknown
+}
+
+export type AppSkillCreateResponses = {
+  200: SkillDetail
+}
+
+export type AppSkillCreateResponse = AppSkillCreateResponses[keyof AppSkillCreateResponses]
+
+export type AppSkillUpdateData = {
+  body: SkillUpsertInput
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/skill/{name}"
+}
+
+export type AppSkillUpdateErrors = {
+  400: unknown
+}
+
+export type AppSkillUpdateResponses = {
+  200: SkillDetail
+}
+
+export type AppSkillUpdateResponse = AppSkillUpdateResponses[keyof AppSkillUpdateResponses]
+
+export type AppSkillDeleteData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/skill/{name}"
+}
+
+export type AppSkillDeleteErrors = {
+  400: unknown
+}
+
+export type AppSkillDeleteResponses = {
+  200: boolean
+}
+
+export type AppSkillDeleteResponse = AppSkillDeleteResponses[keyof AppSkillDeleteResponses]
 
 export type McpStatusData = {
   body?: never
