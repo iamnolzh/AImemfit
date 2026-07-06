@@ -922,10 +922,7 @@ export default function Layout(props: ParentProps) {
       <div class="flex flex-col self-stretch h-full items-center justify-between overflow-hidden min-h-0">
         <div class="flex flex-col items-start self-stretch gap-4 min-h-0">
           <Show when={!sidebarProps.mobile}>
-            <div
-              class="border-b border-border-weak-base w-full min-h-13 px-2 pt-2 pb-2 shrink-0"
-              data-tauri-drag-region
-            >
+            <div class="h-12 border-b border-border-weak-base w-full px-2 py-2 shrink-0" data-tauri-drag-region>
               <div class="flex w-full items-center gap-1" data-tauri-drag-region>
                 <TooltipKeybind
                   class="shrink-0"
@@ -1192,9 +1189,7 @@ export default function Layout(props: ParentProps) {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              class="border-b border-border-weak-base w-full min-h-13 px-2 pt-2 pb-2 shrink-0"
-            >
+            <div class="h-12 border-b border-border-weak-base w-full px-2 py-2 shrink-0">
               <div class="flex w-full items-center gap-1">
                 <Button
                   variant="ghost"
