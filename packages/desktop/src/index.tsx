@@ -238,7 +238,7 @@ const platform: Platform = {
       .then(() => {
         const notification = new Notification(title, {
           body: description ?? "",
-          icon: "/yaklogo.png",
+          icon: "/chengfeng-mark.png",
         })
         notification.onclick = () => {
           const win = getCurrentWindow()

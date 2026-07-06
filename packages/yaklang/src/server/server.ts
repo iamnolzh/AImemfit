@@ -24,7 +24,6 @@ import { Instance } from "../project/instance"
 import { Project } from "../project/project"
 import { Vcs } from "../project/vcs"
 import { Agent } from "../agent/agent"
-import { Skill } from "../skill/skill"
 import { Auth } from "../auth"
 import { Command } from "../command"
 import { ProviderAuth } from "../provider/auth"
@@ -52,6 +51,7 @@ import { PermissionNext } from "@/permission/next"
 import { Installation } from "@/installation"
 import { MDNS } from "./mdns"
 import { Worktree } from "../worktree"
+import { SkillRoute } from "./skill"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -286,6 +286,7 @@ export namespace Server {
       .use(validator("query", z.object({ directory: z.string().optional() })))
 
       .route("/project", ProjectRoute)
+      .route("/skill", SkillRoute)
 
       .get(
         "/pty",
@@ -2155,28 +2156,6 @@ export namespace Server {
         async (c) => {
           const modes = await Agent.list()
           return c.json(modes)
-        },
-      )
-      .get(
-        "/skill",
-        describeRoute({
-          summary: "List skills",
-          description: "Get a list of all available skills for the current project (from .yaklang/skill and .claude/skills).",
-          operationId: "app.skills",
-          responses: {
-            200: {
-              description: "List of skills",
-              content: {
-                "application/json": {
-                  schema: resolver(Skill.Info.array()),
-                },
-              },
-            },
-          },
-        }),
-        async (c) => {
-          const skills = await Skill.all()
-          return c.json(skills)
         },
       )
       .get(

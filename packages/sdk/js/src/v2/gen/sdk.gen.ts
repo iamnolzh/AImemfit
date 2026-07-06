@@ -7,6 +7,14 @@ import type {
   AppAgentsResponses,
   AppLogErrors,
   AppLogResponses,
+  AppSkillCreateErrors,
+  AppSkillCreateResponses,
+  AppSkillDeleteErrors,
+  AppSkillDeleteResponses,
+  AppSkillGetErrors,
+  AppSkillGetResponses,
+  AppSkillUpdateErrors,
+  AppSkillUpdateResponses,
   AppSkillsResponses,
   Auth as Auth2,
   AuthSetErrors,
@@ -2187,6 +2195,115 @@ export class App extends HeyApiClient {
     const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "directory" }] }])
     return (options?.client ?? this.client).get<AppSkillsResponses, unknown, ThrowOnError>({
       url: "/skill",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get skill
+   *
+   * Get a skill with editable markdown content.
+   */
+  public skillGet<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [{ args: [{ in: "path", key: "name" }, { in: "query", key: "directory" }] }],
+    )
+    return (options?.client ?? this.client).get<AppSkillGetResponses, AppSkillGetErrors, ThrowOnError>({
+      url: "/skill/{name}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create skill
+   *
+   * Create a project skill under .yaklang/skill.
+   */
+  public skillCreate<ThrowOnError extends boolean = false>(
+    parameters: {
+      body: {
+        name: string
+        description: string
+        content?: string
+      }
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [{ args: [{ in: "body", key: "body" }, { in: "query", key: "directory" }] }],
+    )
+    return (options?.client ?? this.client).post<AppSkillCreateResponses, AppSkillCreateErrors, ThrowOnError>({
+      url: "/skill",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+  }
+
+  /**
+   * Update skill
+   *
+   * Update a project skill under .yaklang/skill.
+   */
+  public skillUpdate<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      body: {
+        name: string
+        description: string
+        content?: string
+      }
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [{ args: [{ in: "path", key: "name" }, { in: "body", key: "body" }, { in: "query", key: "directory" }] }],
+    )
+    return (options?.client ?? this.client).patch<AppSkillUpdateResponses, AppSkillUpdateErrors, ThrowOnError>({
+      url: "/skill/{name}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete skill
+   *
+   * Delete a project skill under .yaklang/skill.
+   */
+  public skillDelete<ThrowOnError extends boolean = false>(
+    parameters: {
+      name: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [{ args: [{ in: "path", key: "name" }, { in: "query", key: "directory" }] }],
+    )
+    return (options?.client ?? this.client).delete<AppSkillDeleteResponses, AppSkillDeleteErrors, ThrowOnError>({
+      url: "/skill/{name}",
       ...options,
       ...params,
     })
