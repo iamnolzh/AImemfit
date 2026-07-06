@@ -296,7 +296,9 @@ jobs:
               ],
               "windows": {
                 "nsis": {
-                  "installerIcon": "icons/prod/icon.ico"
+                  "installerIcon": "icons/prod/icon.ico",
+                  "headerImage": "assets/nsis-header.bmp",
+                  "sidebarImage": "assets/nsis-sidebar.bmp"
                 }
               }
             }
