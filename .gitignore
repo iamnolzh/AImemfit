@@ -26,3 +26,6 @@ target
 # Local dev files
 opencode-dev
 logs/
+
+# Local desktop runtime binaries generated during dev
+packages/desktop/src-tauri/yaklang-cli-*

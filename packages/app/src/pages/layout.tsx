@@ -28,7 +28,7 @@ import { DiffChanges } from "@opencode-ai/ui/diff-changes"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { getFilename } from "@opencode-ai/util/path"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
-import { Session } from "@opencode-ai/sdk/v2/client"
+import type { Part, Session } from "@opencode-ai/sdk/v2/client"
 import { usePlatform } from "@/context/platform"
 import { createStore, produce } from "solid-js/store"
 import {
@@ -58,6 +58,15 @@ import { DialogSelectDirectory } from "@/components/dialog-select-directory"
 import { useServer } from "@/context/server"
 
 export default function Layout(props: ParentProps) {
+  type SearchSessionItem = {
+    session: Session
+    project: LocalProject
+    projectName: string
+    updated: number
+    content?: string
+    snippet?: string
+  }
+
   const [store, setStore] = createStore({
     lastSession: {} as { [directory: string]: string },
     activeDraggable: undefined as string | undefined,
@@ -92,6 +101,11 @@ export default function Layout(props: ParentProps) {
   const command = useCommand()
   const theme = useTheme()
   const availableThemeEntries = createMemo(() => Object.entries(theme.themes()))
+  const [sessionSearchOpen, setSessionSearchOpen] = createSignal(false)
+  const [sessionSearchQuery, setSessionSearchQuery] = createSignal("")
+  const [sessionSearchLoading, setSessionSearchLoading] = createSignal(false)
+  const [remoteSearchSessions, setRemoteSearchSessions] = createSignal<Array<SearchSessionItem>>()
+  let sessionSearchInputRef: HTMLInputElement | undefined
   const colorSchemeOrder: ColorScheme[] = ["system", "light", "dark"]
   const colorSchemeLabel: Record<ColorScheme, string> = {
     system: "跟随系统",
@@ -284,6 +298,149 @@ export default function Layout(props: ParentProps) {
 
   const currentSessions = createMemo(() => projectSessions(currentProject()))
 
+  const loadedSearchSessions = createMemo<SearchSessionItem[]>(() => {
+    const items = layout.projects
+      .list()
+      .flatMap((project) =>
+        projectSessions(project).map((session) => ({
+          session,
+          project,
+          projectName: projectDisplayName(project),
+          updated: session.time.updated ?? session.time.created,
+        })),
+      )
+      .toSorted((a, b) => b.updated - a.updated)
+
+    const seen = new Set<string>()
+    return items.filter((item) => {
+      if (seen.has(item.session.id)) return false
+      seen.add(item.session.id)
+      return true
+    })
+  })
+
+  const searchableSessions = createMemo<SearchSessionItem[]>(() => remoteSearchSessions() ?? loadedSearchSessions())
+
+  function partText(part: Part) {
+    if (part.type === "text") return part.text
+    if (part.type === "reasoning") return part.text
+    if (part.type === "subtask") return [part.description, part.prompt, part.command].filter(Boolean).join("\n")
+    if (part.type === "file") return [part.filename, part.source?.type === "file" ? part.source.text.value : undefined].filter(Boolean).join("\n")
+    return ""
+  }
+
+  function normalizeSearchText(value: string) {
+    return value.replace(/\s+/g, " ").trim()
+  }
+
+  function searchHaystack(item: SearchSessionItem) {
+    return normalizeSearchText([item.session.title, item.projectName, item.session.directory, item.content].filter(Boolean).join("\n"))
+  }
+
+  function createSearchSnippet(item: SearchSessionItem, query: string) {
+    const content = normalizeSearchText(item.content ?? "")
+    const text = query.trim().toLowerCase()
+    if (!content) return ""
+    if (!text) return content.slice(0, 120)
+
+    const index = content.toLowerCase().indexOf(text)
+    if (index === -1) return content.slice(0, 120)
+
+    const start = Math.max(0, index - 48)
+    const end = Math.min(content.length, index + text.length + 72)
+    return `${start > 0 ? "..." : ""}${content.slice(start, end)}${end < content.length ? "..." : ""}`
+  }
+
+  const filteredSearchSessions = createMemo(() => {
+    const text = sessionSearchQuery().trim().toLowerCase()
+    if (!text) return searchableSessions().slice(0, 12)
+    return searchableSessions()
+      .filter((item) => searchHaystack(item).toLowerCase().includes(text))
+      .map((item) => ({
+        ...item,
+        snippet: createSearchSnippet(item, text),
+      }))
+      .slice(0, 30)
+  })
+
+  createEffect(() => {
+    if (!sessionSearchOpen()) return
+    queueMicrotask(() => sessionSearchInputRef?.focus())
+  })
+
+  async function openSessionSearch() {
+    setSessionSearchQuery("")
+    setSessionSearchOpen(true)
+    setSessionSearchLoading(true)
+    try {
+      const projects = layout.projects.list()
+      const results: SearchSessionItem[] = (
+        await Promise.all(
+        projects.map(async (project) => {
+          const sessions = await globalSDK.client.session.list({ directory: project.worktree }).then((x) => x.data ?? [])
+          return sessions
+            .filter((session) => !session.parentID)
+            .filter((session) => !session.time.archived)
+            .map((session) => ({
+              session,
+              project,
+              projectName: projectDisplayName(project),
+              updated: session.time.updated ?? session.time.created,
+            }))
+        }),
+        )
+      )
+        .flat()
+        .toSorted((a, b) => b.updated - a.updated)
+
+      setRemoteSearchSessions(results)
+
+      const indexed = results.slice()
+      let cursor = 0
+      const worker = async () => {
+        while (cursor < indexed.length) {
+          const index = cursor++
+          const item = indexed[index]
+          const messages = await globalSDK.client.session
+            .messages({ directory: item.session.directory, sessionID: item.session.id, limit: 200 })
+            .then((x) => x.data ?? [])
+            .catch(() => [])
+          indexed[index] = {
+            ...item,
+            content: normalizeSearchText(
+              messages
+                .flatMap((message) => message.parts.map(partText))
+                .filter(Boolean)
+                .join("\n"),
+            ),
+          }
+          setRemoteSearchSessions(indexed.slice())
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(6, indexed.length) }, worker))
+    } catch (err) {
+      showToast({
+        title: "搜索会话失败",
+        description: err instanceof Error ? err.message : "无法加载历史会话",
+      })
+    } finally {
+      setSessionSearchLoading(false)
+    }
+  }
+
+  function closeSessionSearch() {
+    setSessionSearchOpen(false)
+    setSessionSearchQuery("")
+    setRemoteSearchSessions(undefined)
+    setSessionSearchLoading(false)
+  }
+
+  function chooseSearchSession(session: Session | undefined) {
+    if (!session) return
+    navigateToSession(session)
+    closeSessionSearch()
+  }
+
   function navigateSessionByOffset(offset: number) {
     const projects = layout.projects.list()
     if (projects.length === 0) return
@@ -407,6 +564,12 @@ export default function Layout(props: ParentProps) {
           const session = currentSessions().find((s) => s.id === params.id)
           if (session) archiveSession(session)
         },
+      },
+      {
+        id: "session.search",
+        title: "搜索历史会话",
+        category: "会话",
+        onSelect: openSessionSearch,
       },
       {
         id: "theme.cycle",
@@ -980,9 +1143,9 @@ export default function Layout(props: ParentProps) {
                         variant="ghost"
                         size="normal"
                         class={`size-8 rounded-lg p-0 text-text-base ${sidebarButtonClass}`}
-                        onClick={() => showToast({ title: "搜索功能准备中", description: "历史会话搜索将在后续版本开放。" })}
+                        onClick={openSessionSearch}
                       >
-                        <Icon name="bubble-5" size="small" />
+                        <Icon name="magnifying-glass" size="small" />
                       </Button>
                     </Tooltip>
                     <Tooltip placement="bottom" value="技能">
@@ -1220,6 +1383,14 @@ export default function Layout(props: ParentProps) {
                 >
                   <Icon name="brain" size="small" />
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="normal"
+                  class="size-8 rounded-lg p-0 text-text-base"
+                  onClick={openSessionSearch}
+                >
+                  <Icon name="magnifying-glass" size="small" />
+                </Button>
               </div>
             </div>
             <SidebarContent mobile />
@@ -1228,6 +1399,93 @@ export default function Layout(props: ParentProps) {
 
         <main class="size-full overflow-x-hidden flex flex-col items-start contain-strict">{props.children}</main>
       </div>
+      <Show when={sessionSearchOpen()}>
+        <div
+          class="fixed inset-0 z-60 flex items-start justify-center bg-black/20 px-4 pt-24"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSessionSearch()
+          }}
+        >
+          <div class="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border-weak-base bg-background-base shadow-2xl">
+            <div class="flex h-14 items-center gap-3 border-b border-border-weak-base px-4">
+              <Icon name="magnifying-glass" size="small" class="shrink-0 text-text-weak" />
+              <input
+                ref={(el) => (sessionSearchInputRef = el)}
+                value={sessionSearchQuery()}
+                onInput={(event) => setSessionSearchQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    closeSessionSearch()
+                    return
+                  }
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    chooseSearchSession(filteredSearchSessions()[0]?.session)
+                  }
+                }}
+                placeholder="搜索历史会话、项目或路径"
+                class="min-w-0 flex-1 border-none bg-transparent text-15-regular text-text-strong outline-none placeholder:text-text-subtle"
+              />
+              <Button
+                variant="ghost"
+                size="normal"
+                class="rounded-lg px-2 text-12-regular text-text-weak hover:bg-background-stronger"
+                onClick={closeSessionSearch}
+              >
+                Esc
+              </Button>
+            </div>
+            <Show when={sessionSearchLoading()}>
+              <div class="flex items-center gap-2 border-b border-border-weak-base px-4 py-2 text-12-regular text-text-weak">
+                <Spinner class="size-3" />
+                正在加载历史会话和任务内容
+              </div>
+            </Show>
+            <div class="max-h-[58vh] overflow-y-auto p-2">
+              <Switch>
+                <Match when={filteredSearchSessions().length > 0}>
+                  <For each={filteredSearchSessions()}>
+                    {(item) => (
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left hover:bg-background-stronger"
+                        onClick={() => chooseSearchSession(item.session)}
+                      >
+                        <Icon name="bubble-5" size="small" class="shrink-0 text-text-weak" />
+                        <div class="min-w-0 flex-1">
+                          <div class="truncate text-14-medium text-text-strong">{item.session.title}</div>
+                          <div class="mt-1 flex min-w-0 items-center gap-2 text-12-regular text-text-weak">
+                            <span class="truncate">{item.projectName}</span>
+                            <span>/</span>
+                            <span class="truncate">{item.session.directory}</span>
+                          </div>
+                          <Show when={item.snippet}>
+                            {(snippet) => (
+                              <div class="mt-1 line-clamp-2 text-12-regular leading-5 text-text-base">
+                                {snippet()}
+                              </div>
+                            )}
+                          </Show>
+                        </div>
+                        <span class="shrink-0 text-12-regular text-text-weak">
+                          {DateTime.fromMillis(item.updated).toRelative()}
+                        </span>
+                      </button>
+                    )}
+                  </For>
+                </Match>
+                <Match when={true}>
+                  <div class="flex min-h-44 flex-col items-center justify-center text-center">
+                    <div class="text-14-medium text-text-strong">没有找到会话</div>
+                    <div class="mt-1 text-12-regular text-text-weak">换个关键词，或先打开包含历史会话的项目。</div>
+                  </div>
+                </Match>
+              </Switch>
+            </div>
+          </div>
+        </div>
+      </Show>
       <Toast.Region />
     </div>
   )
